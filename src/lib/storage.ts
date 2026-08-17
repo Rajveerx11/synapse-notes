@@ -33,8 +33,8 @@ function getR2Client(): { client: S3Client; bucket: string; publicDomain?: strin
 
 /**
  * Universal upload method with automatic provider selection:
- * 1. Cloudflare R2 (10 GB free forever / zero egress fees)
- * 2. Vercel Blob (1 GB free)
+ * 1. Cloudflare R2 (if configured)
+ * 2. Vercel Blob (1 GB free storage)
  * 3. Neon Postgres fallback (base64 table)
  */
 export async function uploadFileToStorage(
@@ -46,7 +46,7 @@ export async function uploadFileToStorage(
   const safeFilename = filename.trim().replace(/[^a-zA-Z0-9_.-]/g, "_");
   const uniqueKey = `users/${userId}/${Date.now()}-${safeFilename}`;
 
-  // 1. Cloudflare R2 Storage (Preferred)
+  // 1. Cloudflare R2 Storage
   const r2 = getR2Client();
   if (r2) {
     try {
@@ -72,11 +72,23 @@ export async function uploadFileToStorage(
   // 2. Vercel Blob Storage
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     try {
-      const blob = await put(uniqueKey, buffer, {
-        access: "public",
-        contentType,
-      });
-      return { url: blob.url, provider: "vercel_blob" };
+      // Try private store upload (supported on Vercel Hobby private stores)
+      let blob;
+      try {
+        blob = await put(uniqueKey, buffer, {
+          access: "private",
+          contentType,
+        });
+      } catch {
+        blob = await put(uniqueKey, buffer, {
+          access: "public",
+          contentType,
+        });
+      }
+
+      // Route through streaming endpoint for reliable streaming
+      const streamUrl = `/api/pdf/blob?url=${encodeURIComponent(blob.url)}`;
+      return { url: streamUrl, provider: "vercel_blob" };
     } catch (err) {
       console.warn("Vercel Blob upload error, falling back to database:", err);
     }

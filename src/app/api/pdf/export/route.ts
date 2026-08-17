@@ -61,6 +61,14 @@ export async function POST(req: NextRequest) {
       const base64 = pdfUrl.replace("data:application/pdf;base64,", "");
       const buf = Buffer.from(base64, "base64");
       pdfBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    } else if (pdfUrl.startsWith("/api/pdf/blob?url=")) {
+      const rawBlobUrl = decodeURIComponent(pdfUrl.replace("/api/pdf/blob?url=", ""));
+      const token = process.env.BLOB_READ_WRITE_TOKEN;
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const blobRes = await fetch(rawBlobUrl, { headers });
+      if (!blobRes.ok) throw new Error("Could not fetch source blob PDF");
+      pdfBuffer = await blobRes.arrayBuffer();
     } else if (pdfUrl.startsWith("/api/pdf/")) {
       const id = pdfUrl.replace("/api/pdf/", "");
       if (process.env.DATABASE_URL) {
