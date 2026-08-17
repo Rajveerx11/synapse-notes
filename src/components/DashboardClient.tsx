@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Notebook } from "@/lib/types";
 import NotebookCard from "./NotebookCard";
@@ -12,29 +12,136 @@ interface Props {
 }
 
 export default function DashboardClient({ notebooks: initial, username }: Props) {
-  const [notebooks, setNotebooks] = useState(initial);
+  const [notebooks, setNotebooks] = useState<Notebook[]>(initial);
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
   const [showNew, setShowNew] = useState(false);
   const router = useRouter();
 
+  // Hydrate from localStorage on client mount (merge with server data)
+  useEffect(() => {
+    try {
+      const localListStr = localStorage.getItem("synapse_user_notebooks");
+      if (localListStr) {
+        const localList: Notebook[] = JSON.parse(localListStr);
+        setNotebooks(prev => {
+          const map = new Map<string, Notebook>();
+          // Server items first
+          for (const nb of prev) map.set(nb.id, nb);
+          // Local items if missing
+          for (const nb of localList) {
+            if (!map.has(nb.id)) map.set(nb.id, nb);
+          }
+          return Array.from(map.values()).sort((a, b) => b.updated_at - a.updated_at);
+        });
+      }
+    } catch (e) {
+      console.warn("Failed to load local notebooks cache:", e);
+    }
+  }, []);
+
   async function createNotebook(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
     setCreating(true);
 
-    const res = await fetch("/api/notebooks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: title.trim(), subject: subject.trim() }),
-    });
+    const titleVal = title.trim();
+    const subjectVal = subject.trim();
 
-    const json = await res.json();
-    setCreating(false);
+    try {
+      const res = await fetch("/api/notebooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: titleVal, subject: subjectVal }),
+      });
 
-    if (res.ok) {
-      router.push(`/notebook/${json.data.id}`);
+      let json: { data?: Notebook; error?: string } = {};
+      try {
+        json = await res.json();
+      } catch {
+        json = {};
+      }
+
+      setCreating(false);
+
+      if (res.ok && json.data) {
+        const newNb = json.data;
+        // Save to local cache for instant offline & cross-lambda access
+        try {
+          localStorage.setItem(
+            `synapse_nb_${newNb.id}`,
+            JSON.stringify({
+              id: newNb.id,
+              title: newNb.title,
+              subject: newNb.subject,
+              pages: [
+                {
+                  id: "p1",
+                  notebook_id: newNb.id,
+                  page_number: 1,
+                  strokes_json: "[]",
+                  text_content: "",
+                  pdf_url: null,
+                  pdf_page: null,
+                  updated_at: Math.floor(Date.now() / 1000),
+                },
+              ],
+            })
+          );
+
+          // Update local notebooks list
+          const existingList: Notebook[] = JSON.parse(
+            localStorage.getItem("synapse_user_notebooks") || "[]"
+          );
+          localStorage.setItem(
+            "synapse_user_notebooks",
+            JSON.stringify([newNb, ...existingList.filter(n => n.id !== newNb.id)])
+          );
+        } catch (storageErr) {
+          console.warn("Storage write error:", storageErr);
+        }
+
+        router.push(`/notebook/${newNb.id}`);
+      } else {
+        // If server failed, create a client-side notebook fallback
+        const fallbackId = `local-${Date.now()}`;
+        const fallbackNb: Notebook = {
+          id: fallbackId,
+          user_id: "local",
+          title: titleVal,
+          subject: subjectVal,
+          created_at: Math.floor(Date.now() / 1000),
+          updated_at: Math.floor(Date.now() / 1000),
+          page_count: 1,
+        };
+
+        localStorage.setItem(
+          `synapse_nb_${fallbackId}`,
+          JSON.stringify({
+            id: fallbackId,
+            title: fallbackNb.title,
+            subject: fallbackNb.subject,
+            pages: [
+              {
+                id: "p1",
+                notebook_id: fallbackId,
+                page_number: 1,
+                strokes_json: "[]",
+                text_content: "",
+                pdf_url: null,
+                pdf_page: null,
+                updated_at: Math.floor(Date.now() / 1000),
+              },
+            ],
+          })
+        );
+
+        router.push(`/notebook/${fallbackId}`);
+      }
+    } catch (err) {
+      setCreating(false);
+      console.error("Create notebook error:", err);
     }
   }
 

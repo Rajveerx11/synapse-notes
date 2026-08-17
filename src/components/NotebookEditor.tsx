@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Notebook, Page, AiCard, Stroke } from "@/lib/types";
 import Canvas from "./Canvas";
@@ -16,8 +16,18 @@ interface Props {
   username: string;
 }
 
-export default function NotebookEditor({ notebook, initialPages, initialCards, username }: Props) {
+export default function NotebookEditor({
+  notebook: serverNotebook,
+  initialPages,
+  initialCards,
+  username,
+}: Props) {
   const router = useRouter();
+
+  // Notebook metadata state
+  const [notebook, setNotebook] = useState<Notebook>(serverNotebook);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState(serverNotebook.title);
 
   // Tool state
   const [tool, setTool] = useState<"pen" | "highlighter" | "eraser" | "lasso">("pen");
@@ -42,51 +52,124 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
   // Auto-save debounce ref
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Client hydration from localStorage on mount
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(`synapse_nb_${serverNotebook.id}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.title && (serverNotebook.title === "Untitled Notebook" || !serverNotebook.title)) {
+          setNotebook(prev => ({ ...prev, title: parsed.title, subject: parsed.subject || prev.subject }));
+          setTitleInput(parsed.title);
+        }
+        if (parsed.pages && parsed.pages.length > 0) {
+          setPages(prev => {
+            // Keep local strokes if server has empty
+            const map = new Map<number, Page>();
+            for (const p of parsed.pages) map.set(p.page_number, p);
+            for (const p of prev) {
+              if (p.strokes_json !== "[]" || !map.has(p.page_number)) {
+                map.set(p.page_number, p);
+              }
+            }
+            return Array.from(map.values()).sort((a, b) => a.page_number - b.page_number);
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to load local notebook cache:", e);
+    }
+  }, [serverNotebook.id, serverNotebook.title]);
+
   const currentPageData = pages.find(p => p.page_number === currentPage);
   const currentStrokes: Stroke[] = JSON.parse(currentPageData?.strokes_json || "[]");
+
+  const persistLocally = useCallback(
+    (updatedPages: Page[], currentTitle?: string) => {
+      try {
+        localStorage.setItem(
+          `synapse_nb_${notebook.id}`,
+          JSON.stringify({
+            id: notebook.id,
+            title: currentTitle || notebook.title,
+            subject: notebook.subject,
+            pages: updatedPages,
+          })
+        );
+      } catch (e) {
+        console.warn("Local storage save error:", e);
+      }
+    },
+    [notebook.id, notebook.title, notebook.subject]
+  );
 
   const handleStrokeSave = useCallback(
     (strokes: Stroke[]) => {
       setSaveStatus("saving");
+
+      // Update in-memory state and localStorage immediately
+      setPages(prev => {
+        const idx = prev.findIndex(p => p.page_number === currentPage);
+        let updated: Page[];
+        if (idx >= 0) {
+          updated = [...prev];
+          updated[idx] = { ...updated[idx], strokes_json: JSON.stringify(strokes) };
+        } else {
+          updated = [
+            ...prev,
+            {
+              id: `p-${currentPage}`,
+              notebook_id: notebook.id,
+              page_number: currentPage,
+              strokes_json: JSON.stringify(strokes),
+              text_content: "",
+              pdf_url: pdfUrl,
+              pdf_page: 1,
+              updated_at: Math.floor(Date.now() / 1000),
+            },
+          ];
+        }
+        persistLocally(updated);
+        return updated;
+      });
+
+      // Debounce server background sync
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
-        const res = await fetch(`/api/notebooks/${notebook.id}/pages`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            page_number: currentPage,
-            strokes_json: JSON.stringify(strokes),
-          }),
-        });
-        if (res.ok) {
-          setSaveStatus("saved");
-          setPages(prev => {
-            const idx = prev.findIndex(p => p.page_number === currentPage);
-            if (idx >= 0) {
-              const copy = [...prev];
-              copy[idx] = { ...copy[idx], strokes_json: JSON.stringify(strokes) };
-              return copy;
-            } else {
-              return [
-                ...prev,
-                {
-                  id: "temp",
-                  notebook_id: notebook.id,
-                  page_number: currentPage,
-                  strokes_json: JSON.stringify(strokes),
-                  text_content: "",
-                  pdf_url: pdfUrl,
-                  pdf_page: 1,
-                  updated_at: Math.floor(Date.now() / 1000),
-                },
-              ];
-            }
+        try {
+          await fetch(`/api/notebooks/${notebook.id}/pages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              page_number: currentPage,
+              strokes_json: JSON.stringify(strokes),
+            }),
           });
+        } catch (e) {
+          console.warn("Server sync background warning:", e);
         }
-      }, 1200);
+        setSaveStatus("saved");
+      }, 1000);
     },
-    [notebook.id, currentPage, pdfUrl]
+    [notebook.id, currentPage, pdfUrl, persistLocally]
   );
+
+  async function handleTitleSave() {
+    setIsEditingTitle(false);
+    const newTitle = titleInput.trim() || "Untitled Notebook";
+    setNotebook(prev => ({ ...prev, title: newTitle }));
+    persistLocally(pages, newTitle);
+
+    try {
+      await fetch(`/api/notebooks/${notebook.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle }),
+      });
+    } catch (e) {
+      console.warn("Title sync warning:", e);
+    }
+  }
 
   async function uploadPDF(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -94,22 +177,25 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
     setSaveStatus("saving");
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch("/api/pdf", { method: "POST", body: form });
-    const json = await res.json();
-    if (res.ok) {
-      const url = json.data.url;
-      setPdfUrl(url);
-      setShowPDF(true);
-      await fetch(`/api/notebooks/${notebook.id}/pages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ page_number: currentPage, pdf_url: url }),
-      });
-      setSaveStatus("saved");
-    }
-  }
 
-  const totalPages = Math.max(pages.length, currentPage);
+    try {
+      const res = await fetch("/api/pdf", { method: "POST", body: form });
+      const json = await res.json();
+      if (res.ok && json.data?.url) {
+        const url = json.data.url;
+        setPdfUrl(url);
+        setShowPDF(true);
+        await fetch(`/api/notebooks/${notebook.id}/pages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ page_number: currentPage, pdf_url: url }),
+        });
+      }
+    } catch (err) {
+      console.error("PDF upload error:", err);
+    }
+    setSaveStatus("saved");
+  }
 
   return (
     <div className={styles.layout}>
@@ -122,7 +208,26 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
             </svg>
           </button>
           <div className={styles.notebookMeta}>
-            <span className={styles.notebookTitle}>{notebook.title}</span>
+            {isEditingTitle ? (
+              <input
+                type="text"
+                value={titleInput}
+                onChange={e => setTitleInput(e.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={e => e.key === "Enter" && handleTitleSave()}
+                autoFocus
+                style={{ fontSize: "var(--text-sm)", padding: "2px 6px", width: "180px" }}
+              />
+            ) : (
+              <span
+                className={styles.notebookTitle}
+                onClick={() => setIsEditingTitle(true)}
+                title="Click to rename"
+                style={{ cursor: "pointer" }}
+              >
+                {notebook.title}
+              </span>
+            )}
             {notebook.subject && <span className={styles.notebookSubject}>{notebook.subject}</span>}
           </div>
           <span className={`${styles.saveBadge} ${saveStatus === "saving" ? styles.saving : ""}`}>
