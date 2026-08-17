@@ -6,7 +6,8 @@ Connect **Claude Code**, **Codex**, and **Antigravity** to your live Synapse Not
 
 ## 1. Production URL & API Credentials
 
-* **Live Web App:** `https://synapse-notes-rajveerx11s-projects.vercel.app`
+* **Primary Production URL:** `https://synapse-notes-iota.vercel.app`
+* **Alternate URL:** `https://synapse-notes-rajveerx11s-projects.vercel.app`
 * **API Key:** `synapse_sec_89f2a93c71e28b14a`
 * **MCP Server Script:** `C:/Note-Taking/mcp-server/dist/index.js`
 
@@ -26,7 +27,7 @@ Add the following to your Claude configuration file:
       "args": ["C:/Note-Taking/mcp-server/dist/index.js"],
       "env": {
         "SYNAPSE_API_KEY": "synapse_sec_89f2a93c71e28b14a",
-        "SYNAPSE_BASE_URL": "https://synapse-notes-rajveerx11s-projects.vercel.app"
+        "SYNAPSE_BASE_URL": "https://synapse-notes-iota.vercel.app"
       }
     }
   }
@@ -42,7 +43,7 @@ In Antigravity's MCP Settings / Config:
 2. Set Command to: `node C:/Note-Taking/mcp-server/dist/index.js`
 3. Add Environment Variables:
    - `SYNAPSE_API_KEY`: `synapse_sec_89f2a93c71e28b14a`
-   - `SYNAPSE_BASE_URL`: `https://synapse-notes-rajveerx11s-projects.vercel.app`
+   - `SYNAPSE_BASE_URL`: `https://synapse-notes-iota.vercel.app`
 
 ---
 
@@ -50,7 +51,7 @@ In Antigravity's MCP Settings / Config:
 
 Run the MCP server directly over stdio:
 ```bash
-SYNAPSE_API_KEY=synapse_sec_89f2a93c71e28b14a SYNAPSE_BASE_URL=https://synapse-notes-rajveerx11s-projects.vercel.app node C:/Note-Taking/mcp-server/dist/index.js
+SYNAPSE_API_KEY=synapse_sec_89f2a93c71e28b14a SYNAPSE_BASE_URL=https://synapse-notes-iota.vercel.app node C:/Note-Taking/mcp-server/dist/index.js
 ```
 
 ---
