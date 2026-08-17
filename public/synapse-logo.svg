@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" width="100%" height="100%">
+  <defs>
+    <linearGradient id="gradPrimary" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+    <linearGradient id="gradGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0.8" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background Card -->
+  <rect width="800" height="200" rx="24" fill="#090d16" />
+  <rect width="798" height="198" x="1" y="1" rx="23" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" />
+
+  <!-- Logo Mark -->
+  <g transform="translate(60, 35)">
+    <!-- Neural Synapse Ring -->
+    <circle cx="65" cy="65" r="54" fill="none" stroke="url(#gradPrimary)" stroke-width="3.5" opacity="0.4" stroke-dasharray="6 4" />
+    <circle cx="65" cy="65" r="44" fill="#131b2e" stroke="url(#gradPrimary)" stroke-width="2" />
+    
+    <!-- Stylus Nib & Synapse Pathways -->
+    <path d="M65 30 L88 78 L65 100 L42 78 Z" fill="url(#gradPrimary)" filter="url(#glow)" />
+    <path d="M65 42 L78 75 L65 90 L52 75 Z" fill="#090d16" />
+    
+    <!-- Stylus Central Core & Spark -->
+    <circle cx="65" cy="65" r="5" fill="#ffffff" filter="url(#glow)" />
+    
+    <!-- Outer Synapse Nodes -->
+    <circle cx="28" cy="45" r="4" fill="#60a5fa" />
+    <circle cx="102" cy="45" r="4" fill="#a78bfa" />
+    <circle cx="105" cy="85" r="3.5" fill="#38bdf8" />
+    <circle cx="25" cy="85" r="3.5" fill="#c084fc" />
+    
+    <!-- Connecting neural lines -->
+    <line x1="28" y1="45" x2="52" y2="75" stroke="#60a5fa" stroke-width="1.5" opacity="0.6" />
+    <line x1="102" y1="45" x2="78" y2="75" stroke="#a78bfa" stroke-width="1.5" opacity="0.6" />
+  </g>
+
+  <!-- Typography -->
+  <g transform="translate(220, 108)">
+    <text font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="800" font-size="52" fill="#ffffff" letter-spacing="-1">
+      Synapse <tspan fill="url(#gradPrimary)">Notes</tspan>
+    </text>
+    <text x="3" y="32" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="500" font-size="16" fill="#94a3b8" letter-spacing="1.5">
+      AI-NATIVE TABLET NOTEBOOK &amp; MCP AGENT BRIDGE
+    </text>
+  </g>
+</svg>
