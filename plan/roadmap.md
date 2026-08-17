@@ -1,39 +1,34 @@
-# Development Roadmap - Synapse Notes v1.0
+# Development Roadmap — Synapse Notes
 
-A phased execution plan for building the AI-connected note-taking application.
-
----
-
-## Phase 1: Foundation & Drawing Engine (Week 1)
-- [ ] Initialize Next.js 14+ full-stack project with TypeScript.
-- [ ] Set up clean CSS design system and responsive layout (Tablet + Laptop).
-- [ ] Build S-Pen optimized Drawing Canvas (smooth pen, highlighter, eraser, shapes, palm rejection).
-- [ ] Implement undo/redo and local vector storage.
+Comprehensive roadmap detailing completed milestones and strategic future releases.
 
 ---
 
-## Phase 2: PDF Slide Viewer & Annotations (Week 2)
-- [ ] Implement multi-page PDF uploader and viewer.
-- [ ] Overlay transparent annotation layer on top of PDF slides.
-- [ ] Build annotated PDF export engine (download merged PDF with handwriting).
+## 🏁 Phase 1: MVP & Core Foundation (v1.0.0 — COMPLETED ✅)
+
+- [x] **Next.js Full-Stack Architecture**: Next.js 16 with App Router, serverless route handlers, and SSR.
+- [x] **S-Pen Canvas Engine**: Ultra-low latency handwriting, hardware pressure sensitivity, palm rejection, 8-color palette, highlighter with multiply blend mode.
+- [x] **Annotated PDF Canvas**: PDF slide import, multi-page slide navigation, direct vector drawing on top of slides, and server-side vector baking (`pdf-lib`) for downloadable PDF exports.
+- [x] **AI Study Deck**: Slide-in drawer with KaTeX LaTeX math typesetting ($...$ and $$...$$) and Mermaid.js dynamic flowcharts.
+- [x] **Cloud Persistence (Neon PostgreSQL)**: Database schema for users, notebooks, pages, AI cards, and PDF binary storage with connection pooling.
+- [x] **Model Context Protocol (MCP) Server**: Standalone compiled server (`mcp-server/dist/index.js`) exposing 4 tools to Claude Code, Codex, and Antigravity.
+- [x] **PWA Installation**: Manifest, icons, standalone mobile navigation, and tablet responsiveness.
+- [x] **Live Vercel Production Deployment**: Aliased to [https://synapse-notes-iota.vercel.app](https://synapse-notes-iota.vercel.app).
 
 ---
 
-## Phase 3: AI Study Cards & Math Rendering (Week 3)
-- [ ] Create AI Study Card component with KaTeX LaTeX math support.
-- [ ] Implement Diagram rendering (Mermaid.js charts, neural network diagrams).
-- [ ] Build in-app "Ask AI" assistant for fast classroom doubt resolution.
+## 🚀 Phase 2: Collaboration & Enhanced Ink (v1.1.0 — In Progress)
+
+- [ ] **Vector Shape Auto-Snapping**: Draw rough rectangles, ellipses, and arrows with automatic Bézier smoothing.
+- [ ] **Lasso Selection & Transform**: Lasso select handwriting strokes to move, resize, recolor, or copy.
+- [ ] **Audio Lecture Recording Sync**: Synchronized voice recording timestamped against handwritten strokes.
+- [ ] **Dual-Page Split Screen**: Side-by-side mode (lecture slide on left, blank scribble scratchpad on right).
 
 ---
 
-## Phase 4: Model Context Protocol (MCP) Server (Week 4)
-- [ ] Build standalone MCP server package (`packages/mcp-server`).
-- [ ] Connect MCP server to Next.js API with secure token authentication.
-- [ ] Test end-to-end integration with Claude Code and Codex.
+## 🌌 Phase 3: Autonomous AI & Multimodal Intelligence (v2.0.0 — Planned)
 
----
-
-## Phase 5: Polish, PWA, & Deployment
-- [ ] Configure PWA manifest and service worker for offline tablet support.
-- [ ] Deploy full-stack app to Vercel / Netlify.
-- [ ] Conduct end-to-end testing on Samsung Galaxy Tab S-Pen.
+- [ ] **Handwriting OCR & Math Recognition Engine**: On-device handwriting recognition turning handwritten equations directly into editable LaTeX.
+- [ ] **Autonomous Exam Prep Agent**: AI agent that reads an entire notebook and generates interactive flashcards, practice quizzes, and formula cheat sheets.
+- [ ] **Real-Time WebRTC Canvas Sync**: Collaborative note-taking with study groups in real time.
+- [ ] **Obsidian & Notion Bidirectional Sync**: Export notebooks directly into personal second-brain vaults.
