@@ -1,0 +1,19 @@
+{
+  "name": "@synapse-notes/mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for Synapse Notes — exposes notebook tools to Claude Code, Codex, and Antigravity",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20"
+  }
+}

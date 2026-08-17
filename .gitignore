@@ -1,31 +1,36 @@
 # Dependencies
 /node_modules
-/.pnp
-.pnp.js
-.yarn/install-state.gz
-
-# Testing
-/coverage
+/mcp-server/node_modules
 
 # Next.js
 /.next/
 /out/
 
-# Production
+# Build
 /build
 /dist
+/mcp-server/dist
 
-# Misc
-.DS_Store
-*.pem
+# Database
+*.db
+*.db-shm
+*.db-wal
 
-# Local env files
+# Uploads
+/public/uploads/
+
+# Env
 .env*.local
 .env
 
-# Vercel
+# Vercel / Netlify
 .vercel
+.netlify
 
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# OS
+.DS_Store
+Thumbs.db

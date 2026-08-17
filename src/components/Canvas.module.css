@@ -1,0 +1,37 @@
+.container {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: var(--canvas-bg);
+  /* Subtle paper texture */
+  background-image: radial-gradient(circle, var(--border-subtle) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none; /* critical for S-Pen */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.actions {
+  position: absolute;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+  box-shadow: var(--shadow-sm);
+}
+
+.actions .btn-icon:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
