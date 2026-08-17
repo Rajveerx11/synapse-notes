@@ -1,6 +1,5 @@
 "use client";
 import { useState, useRef } from "react";
-import { useRouter } from "next/navigation";
 import styles from "./login.module.css";
 
 export default function LoginPage() {
@@ -9,14 +8,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
-  const router = useRouter();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    const username = usernameRef.current?.value.trim() || "";
+    const username = (usernameRef.current?.value || "").trim();
     const password = passwordRef.current?.value || "";
 
     if (!username || !password) {
@@ -40,14 +38,19 @@ export default function LoginPage() {
         json = { error: `Server error (${res.status})` };
       }
 
-      setLoading(false);
-
       if (!res.ok) {
-        setError(json.error || "Authentication failed. Please try again.");
+        setLoading(false);
+        setError(json.error || "Authentication failed. Please check your credentials.");
         return;
       }
 
-      router.replace("/");
+      // Save user session in localStorage for offline & PWA support
+      try {
+        localStorage.setItem("synapse_username", username);
+      } catch (e) {}
+
+      // Hard redirect to guarantee cookies are sent on tablet/mobile browsers
+      window.location.href = "/";
     } catch (err: unknown) {
       setLoading(false);
       setError(err instanceof Error ? err.message : "Network error. Please try again.");
@@ -86,6 +89,9 @@ export default function LoginPage() {
               type="text"
               placeholder="e.g. rajveer"
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               required
             />
           </div>

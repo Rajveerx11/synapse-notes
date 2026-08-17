@@ -5,7 +5,10 @@ import { signToken } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { username, password } = await req.json();
+    const body = await req.json();
+    const username = (body.username || "").trim();
+    const password = body.password || "";
+
     if (!username || !password) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
@@ -16,7 +19,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    const token = await signToken({ userId: user.id, username });
+    const token = await signToken({ userId: user.id, username: user.username });
     const res = NextResponse.json({ ok: true });
     res.cookies.set("synapse_token", token, {
       httpOnly: true,

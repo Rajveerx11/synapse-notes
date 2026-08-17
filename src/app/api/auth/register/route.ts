@@ -6,7 +6,10 @@ import { v4 as uuid } from "uuid";
 
 export async function POST(req: NextRequest) {
   try {
-    const { username, password } = await req.json();
+    const body = await req.json();
+    const username = (body.username || "").trim();
+    const password = body.password || "";
+
     if (!username || !password || username.length < 3 || password.length < 6) {
       return NextResponse.json(
         { error: "Username ≥ 3 chars and password ≥ 6 chars required" },
@@ -21,9 +24,9 @@ export async function POST(req: NextRequest) {
 
     const id = uuid();
     const password_hash = await bcrypt.hash(password, 12);
-    await dbService.createUser(id, username, password_hash);
+    const user = await dbService.createUser(id, username, password_hash);
 
-    const token = await signToken({ userId: id, username });
+    const token = await signToken({ userId: user.id, username: user.username });
     const res = NextResponse.json({ ok: true });
     res.cookies.set("synapse_token", token, {
       httpOnly: true,

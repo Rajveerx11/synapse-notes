@@ -1,4 +1,5 @@
 import { neon, NeonQueryFunction } from "@neondatabase/serverless";
+import { Pool } from "pg";
 import { User, Notebook, Page, AiCard } from "./types";
 import { v4 as uuid } from "uuid";
 import fs from "fs";
@@ -36,36 +37,55 @@ function saveFallbackData(data: FallbackData): void {
   }
 }
 
-let sql: NeonQueryFunction<false, false> | null = null;
+let neonSql: NeonQueryFunction<false, false> | null = null;
+let pgPool: Pool | null = null;
 let schemaInitialized = false;
 
-function getSql(): NeonQueryFunction<false, false> | null {
-  if (!process.env.DATABASE_URL) return null;
-  if (!sql) {
-    try {
-      sql = neon(process.env.DATABASE_URL);
-    } catch (e) {
-      console.warn("Neon initialization error:", e);
-      sql = null;
+// Query executor supporting both Neon and Supabase/standard Postgres
+async function queryDb<T = any>(queryText: string, params: any[] = []): Promise<T[]> {
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) throw new Error("NO_DATABASE_URL");
+
+  // If Neon database
+  if (dbUrl.includes("neon.tech")) {
+    if (!neonSql) {
+      neonSql = neon(dbUrl);
     }
+    // Neon template literal or function
+    const res = await (neonSql as any)(queryText, params);
+    return (res || []) as T[];
   }
-  return sql;
+
+  // Supabase or standard PostgreSQL
+  if (!pgPool) {
+    pgPool = new Pool({
+      connectionString: dbUrl,
+      ssl: { rejectUnauthorized: false },
+      max: 10,
+    });
+  }
+  const client = await pgPool.connect();
+  try {
+    const res = await client.query(queryText, params);
+    return res.rows as T[];
+  } finally {
+    client.release();
+  }
 }
 
 export async function bootstrapSchema(): Promise<void> {
-  const db = getSql();
-  if (!db || schemaInitialized) return;
+  if (!process.env.DATABASE_URL || schemaInitialized) return;
 
   try {
-    await db`
+    await queryDb(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
       )
-    `;
-    await db`
+    `);
+    await queryDb(`
       CREATE TABLE IF NOT EXISTS notebooks (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -74,8 +94,8 @@ export async function bootstrapSchema(): Promise<void> {
         created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
         updated_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
       )
-    `;
-    await db`
+    `);
+    await queryDb(`
       CREATE TABLE IF NOT EXISTS pages (
         id TEXT PRIMARY KEY,
         notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
@@ -87,8 +107,8 @@ export async function bootstrapSchema(): Promise<void> {
         updated_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
         UNIQUE(notebook_id, page_number)
       )
-    `;
-    await db`
+    `);
+    await queryDb(`
       CREATE TABLE IF NOT EXISTS ai_cards (
         id TEXT PRIMARY KEY,
         page_id TEXT NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
@@ -99,7 +119,7 @@ export async function bootstrapSchema(): Promise<void> {
         diagram_data TEXT NOT NULL DEFAULT '',
         created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
       )
-    `;
+    `);
     schemaInitialized = true;
   } catch (e) {
     console.warn("Schema bootstrap warning:", e);
@@ -108,32 +128,38 @@ export async function bootstrapSchema(): Promise<void> {
 
 export const dbService = {
   async findUserByUsername(username: string): Promise<User | null> {
-    const db = getSql();
-    if (db) {
+    const cleanUsername = username.trim().toLowerCase();
+    if (process.env.DATABASE_URL) {
       try {
         await bootstrapSchema();
-        const rows = await db`SELECT * FROM users WHERE username = ${username}`;
-        return (rows[0] as unknown as User) || null;
+        const rows = await queryDb<User>(
+          `SELECT * FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
+          [cleanUsername]
+        );
+        return rows[0] || null;
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres query error, using fallback:", e);
       }
     }
     const data = loadFallbackData();
-    return data.users.find((u) => u.username.toLowerCase() === username.toLowerCase()) || null;
+    return data.users.find((u) => u.username.toLowerCase() === cleanUsername) || null;
   },
 
   async createUser(id: string, username: string, passwordHash: string): Promise<User> {
     const now = Math.floor(Date.now() / 1000);
-    const user: User = { id, username, password_hash: passwordHash, created_at: now };
+    const cleanUsername = username.trim();
+    const user: User = { id, username: cleanUsername, password_hash: passwordHash, created_at: now };
 
-    const db = getSql();
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
         await bootstrapSchema();
-        await db`INSERT INTO users (id, username, password_hash) VALUES (${id}, ${username}, ${passwordHash})`;
+        await queryDb(
+          `INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)`,
+          [id, cleanUsername, passwordHash]
+        );
         return user;
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres insert user error, using fallback:", e);
       }
     }
 
@@ -144,21 +170,21 @@ export const dbService = {
   },
 
   async listNotebooks(userId: string): Promise<Notebook[]> {
-    const db = getSql();
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
         await bootstrapSchema();
-        const rows = await db`
-          SELECT n.*, COUNT(p.id)::int as page_count
-          FROM notebooks n
-          LEFT JOIN pages p ON p.notebook_id = n.id
-          WHERE n.user_id = ${userId}
-          GROUP BY n.id
-          ORDER BY n.updated_at DESC
-        `;
-        return rows as unknown as Notebook[];
+        const rows = await queryDb<Notebook>(
+          `SELECT n.*, COUNT(p.id)::int as page_count
+           FROM notebooks n
+           LEFT JOIN pages p ON p.notebook_id = n.id
+           WHERE n.user_id = $1
+           GROUP BY n.id
+           ORDER BY n.updated_at DESC`,
+          [userId]
+        );
+        return rows;
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres listNotebooks error, using fallback:", e);
       }
     }
 
@@ -173,18 +199,22 @@ export const dbService = {
   },
 
   async getNotebook(id: string, userId: string): Promise<{ notebook: Notebook; pages: Page[] } | null> {
-    const db = getSql();
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
         await bootstrapSchema();
-        const nbs = await db`SELECT * FROM notebooks WHERE id = ${id} AND user_id = ${userId}`;
+        const nbs = await queryDb<Notebook>(
+          `SELECT * FROM notebooks WHERE id = $1 AND (user_id = $2 OR $2 = 'mcp')`,
+          [id, userId]
+        );
         if (nbs.length > 0) {
-          const pages = await db`SELECT * FROM pages WHERE notebook_id = ${id} ORDER BY page_number`;
-          return { notebook: nbs[0] as unknown as Notebook, pages: pages as unknown as Page[] };
+          const pages = await queryDb<Page>(
+            `SELECT * FROM pages WHERE notebook_id = $1 ORDER BY page_number`,
+            [id]
+          );
+          return { notebook: nbs[0], pages };
         }
-        return null;
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres getNotebook error, using fallback:", e);
       }
     }
 
@@ -220,18 +250,21 @@ export const dbService = {
       updated_at: now,
     };
 
-    const db = getSql();
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
         await bootstrapSchema();
-        await db`
-          INSERT INTO notebooks (id, user_id, title, subject, created_at, updated_at)
-          VALUES (${id}, ${userId}, ${title}, ${subject || ""}, ${now}, ${now})
-        `;
-        await db`INSERT INTO pages (id, notebook_id, page_number) VALUES (${firstPage.id}, ${id}, 1)`;
+        await queryDb(
+          `INSERT INTO notebooks (id, user_id, title, subject, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [id, userId, title, subject || "", now, now]
+        );
+        await queryDb(
+          `INSERT INTO pages (id, notebook_id, page_number) VALUES ($1, $2, 1)`,
+          [firstPage.id, id]
+        );
         return nb;
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres createNotebook error, using fallback:", e);
       }
     }
 
@@ -244,19 +277,19 @@ export const dbService = {
 
   async updateNotebook(id: string, userId: string, title?: string, subject?: string): Promise<boolean> {
     const now = Math.floor(Date.now() / 1000);
-    const db = getSql();
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
-        await db`
-          UPDATE notebooks SET
-            title = COALESCE(${title ?? null}, title),
-            subject = COALESCE(${subject ?? null}, subject),
-            updated_at = ${now}
-          WHERE id = ${id} AND user_id = ${userId}
-        `;
+        await queryDb(
+          `UPDATE notebooks SET
+            title = COALESCE($1, title),
+            subject = COALESCE($2, subject),
+            updated_at = $3
+           WHERE id = $4 AND user_id = $5`,
+          [title ?? null, subject ?? null, now, id, userId]
+        );
         return true;
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres updateNotebook error, using fallback:", e);
       }
     }
 
@@ -271,13 +304,12 @@ export const dbService = {
   },
 
   async deleteNotebook(id: string, userId: string): Promise<boolean> {
-    const db = getSql();
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
-        await db`DELETE FROM notebooks WHERE id = ${id} AND user_id = ${userId}`;
+        await queryDb(`DELETE FROM notebooks WHERE id = $1 AND user_id = $2`, [id, userId]);
         return true;
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres deleteNotebook error, using fallback:", e);
       }
     }
 
@@ -290,13 +322,15 @@ export const dbService = {
   },
 
   async listPages(notebookId: string, userId: string): Promise<Page[]> {
-    const db = getSql();
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
-        const pages = await db`SELECT * FROM pages WHERE notebook_id = ${notebookId} ORDER BY page_number`;
-        return pages as unknown as Page[];
+        const pages = await queryDb<Page>(
+          `SELECT * FROM pages WHERE notebook_id = $1 ORDER BY page_number`,
+          [notebookId]
+        );
+        return pages;
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres listPages error, using fallback:", e);
       }
     }
 
@@ -317,35 +351,51 @@ export const dbService = {
     }
   ): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
-    const db = getSql();
-
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
-        const existing = await db`
-          SELECT id FROM pages WHERE notebook_id = ${notebookId} AND page_number = ${pageNumber}
-        `;
+        const existing = await queryDb<{ id: string }>(
+          `SELECT id FROM pages WHERE notebook_id = $1 AND page_number = $2`,
+          [notebookId, pageNumber]
+        );
         if (existing.length > 0) {
-          await db`
-            UPDATE pages SET
-              strokes_json = COALESCE(${update.strokes_json ?? null}, strokes_json),
-              text_content = COALESCE(${update.text_content ?? null}, text_content),
-              pdf_url = COALESCE(${update.pdf_url ?? null}, pdf_url),
-              pdf_page = COALESCE(${update.pdf_page ?? null}, pdf_page),
-              updated_at = ${now}
-            WHERE id = ${existing[0].id}
-          `;
-          return existing[0].id as string;
+          await queryDb(
+            `UPDATE pages SET
+              strokes_json = COALESCE($1, strokes_json),
+              text_content = COALESCE($2, text_content),
+              pdf_url = COALESCE($3, pdf_url),
+              pdf_page = COALESCE($4, pdf_page),
+              updated_at = $5
+             WHERE id = $6`,
+            [
+              update.strokes_json ?? null,
+              update.text_content ?? null,
+              update.pdf_url ?? null,
+              update.pdf_page ?? null,
+              now,
+              existing[0].id,
+            ]
+          );
+          return existing[0].id;
         } else {
           const pageId = uuid();
-          await db`
-            INSERT INTO pages (id, notebook_id, page_number, strokes_json, text_content, pdf_url, pdf_page)
-            VALUES (${pageId}, ${notebookId}, ${pageNumber}, ${update.strokes_json ?? "[]"}, ${update.text_content ?? ""}, ${update.pdf_url ?? null}, ${update.pdf_page ?? null})
-          `;
-          await db`UPDATE notebooks SET updated_at = ${now} WHERE id = ${notebookId}`;
+          await queryDb(
+            `INSERT INTO pages (id, notebook_id, page_number, strokes_json, text_content, pdf_url, pdf_page)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              pageId,
+              notebookId,
+              pageNumber,
+              update.strokes_json ?? "[]",
+              update.text_content ?? "",
+              update.pdf_url ?? null,
+              update.pdf_page ?? null,
+            ]
+          );
+          await queryDb(`UPDATE notebooks SET updated_at = $1 WHERE id = $2`, [now, notebookId]);
           return pageId;
         }
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres upsertPage error, using fallback:", e);
       }
     }
 
@@ -377,26 +427,26 @@ export const dbService = {
   },
 
   async listAiCards(notebookId: string, pageNumber?: number): Promise<AiCard[]> {
-    const db = getSql();
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
         if (pageNumber) {
-          const pages = await db`
-            SELECT id FROM pages WHERE notebook_id = ${notebookId} AND page_number = ${pageNumber}
-          `;
-          if (pages.length === 0) return [];
-          const cards = await db`
-            SELECT * FROM ai_cards WHERE page_id = ${pages[0].id} ORDER BY created_at DESC
-          `;
-          return cards as unknown as AiCard[];
+          const cards = await queryDb<AiCard>(
+            `SELECT ac.* FROM ai_cards ac
+             JOIN pages p ON p.id = ac.page_id
+             WHERE ac.notebook_id = $1 AND p.page_number = $2
+             ORDER BY ac.created_at DESC`,
+            [notebookId, pageNumber]
+          );
+          return cards;
         } else {
-          const cards = await db`
-            SELECT * FROM ai_cards WHERE notebook_id = ${notebookId} ORDER BY created_at DESC
-          `;
-          return cards as unknown as AiCard[];
+          const cards = await queryDb<AiCard>(
+            `SELECT * FROM ai_cards WHERE notebook_id = $1 ORDER BY created_at DESC`,
+            [notebookId]
+          );
+          return cards;
         }
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres listAiCards error, using fallback:", e);
       }
     }
 
@@ -420,26 +470,39 @@ export const dbService = {
     const cardId = uuid();
     const now = Math.floor(Date.now() / 1000);
 
-    const db = getSql();
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
-        let pageRows = await db`
-          SELECT id FROM pages WHERE notebook_id = ${cardInput.notebookId} AND page_number = ${cardInput.pageNumber}
-        `;
+        let pageRows = await queryDb<{ id: string }>(
+          `SELECT id FROM pages WHERE notebook_id = $1 AND page_number = $2`,
+          [cardInput.notebookId, cardInput.pageNumber]
+        );
         let pageId = pageRows[0]?.id;
         if (!pageId) {
           pageId = uuid();
-          await db`INSERT INTO pages (id, notebook_id, page_number) VALUES (${pageId}, ${cardInput.notebookId}, ${cardInput.pageNumber})`;
+          await queryDb(
+            `INSERT INTO pages (id, notebook_id, page_number) VALUES ($1, $2, $3)`,
+            [pageId, cardInput.notebookId, cardInput.pageNumber]
+          );
         }
-        await db`
-          INSERT INTO ai_cards (id, page_id, notebook_id, title, content, diagram_type, diagram_data, created_at)
-          VALUES (${cardId}, ${pageId}, ${cardInput.notebookId}, ${cardInput.title}, ${cardInput.content}, ${cardInput.diagramType ?? "none"}, ${cardInput.diagramData ?? ""}, ${now})
-        `;
-        await db`UPDATE notebooks SET updated_at = ${now} WHERE id = ${cardInput.notebookId}`;
-        const cardRows = await db`SELECT * FROM ai_cards WHERE id = ${cardId}`;
-        return cardRows[0] as unknown as AiCard;
+        await queryDb(
+          `INSERT INTO ai_cards (id, page_id, notebook_id, title, content, diagram_type, diagram_data, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [
+            cardId,
+            pageId,
+            cardInput.notebookId,
+            cardInput.title,
+            cardInput.content,
+            cardInput.diagramType ?? "none",
+            cardInput.diagramData ?? "",
+            now,
+          ]
+        );
+        await queryDb(`UPDATE notebooks SET updated_at = $1 WHERE id = $2`, [now, cardInput.notebookId]);
+        const cardRows = await queryDb<AiCard>(`SELECT * FROM ai_cards WHERE id = $1`, [cardId]);
+        return cardRows[0];
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres createAiCard error, using fallback:", e);
       }
     }
 
@@ -476,32 +539,33 @@ export const dbService = {
   },
 
   async searchNotes(userId: string, query: string) {
-    const db = getSql();
     const like = `%${query}%`;
 
-    if (db) {
+    if (process.env.DATABASE_URL) {
       try {
-        const pageResults = await db`
-          SELECT p.notebook_id, p.page_number, p.text_content,
+        const pageResults = await queryDb(
+          `SELECT p.notebook_id, p.page_number, p.text_content,
                  n.title as notebook_title, n.subject
           FROM pages p
           JOIN notebooks n ON n.id = p.notebook_id
-          WHERE n.user_id = ${userId}
-            AND (p.text_content ILIKE ${like})
-          LIMIT 20
-        `;
-        const cardResults = await db`
-          SELECT ac.title, ac.content, ac.notebook_id, p.page_number, n.title as notebook_title
+          WHERE n.user_id = $1
+            AND (p.text_content ILIKE $2)
+          LIMIT 20`,
+          [userId, like]
+        );
+        const cardResults = await queryDb(
+          `SELECT ac.title, ac.content, ac.notebook_id, p.page_number, n.title as notebook_title
           FROM ai_cards ac
           JOIN pages p ON p.id = ac.page_id
           JOIN notebooks n ON n.id = ac.notebook_id
-          WHERE n.user_id = ${userId}
-            AND (ac.title ILIKE ${like} OR ac.content ILIKE ${like})
-          LIMIT 10
-        `;
+          WHERE n.user_id = $1
+            AND (ac.title ILIKE $2 OR ac.content ILIKE $2)
+          LIMIT 10`,
+          [userId, like]
+        );
         return { pages: pageResults, cards: cardResults };
       } catch (e) {
-        console.warn("Postgres error, using fallback:", e);
+        console.warn("Postgres search error, using fallback:", e);
       }
     }
 
