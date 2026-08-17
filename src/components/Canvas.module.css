@@ -2,9 +2,34 @@
   position: relative;
   flex: 1;
   overflow: hidden;
-  background: var(--canvas-bg);
-  /* Subtle paper texture */
-  background-image: radial-gradient(circle, var(--border-subtle) 1px, transparent 1px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--duration-normal);
+}
+
+/* Paper Templates */
+.paperBlank {
+  background-color: var(--canvas-bg);
+}
+
+.paperDots {
+  background-color: var(--canvas-bg);
+  background-image: radial-gradient(circle, var(--border) 1.2px, transparent 1.2px);
+  background-size: 24px 24px;
+}
+
+.paperRuled {
+  background-color: var(--canvas-bg);
+  background-image: linear-gradient(var(--border) 1px, transparent 1px);
+  background-size: 100% 32px;
+}
+
+.paperGraph {
+  background-color: var(--canvas-bg);
+  background-image: 
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
@@ -17,21 +42,60 @@
   -webkit-user-select: none;
 }
 
-.actions {
+/* Floating Bottom Action Bar */
+.bottomControls {
   position: absolute;
   bottom: var(--space-4);
   right: var(--space-4);
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-1);
-  box-shadow: var(--shadow-sm);
+  align-items: center;
+  gap: var(--space-2);
+  z-index: 20;
 }
 
-.actions .btn-icon:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
+.actionPill {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 4px 6px;
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(12px);
+}
+
+.divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.paperSelector {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.paperBtn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.paperBtn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.paperBtn.activePaper {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }

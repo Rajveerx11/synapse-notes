@@ -31,14 +31,30 @@ export async function POST(req: NextRequest) {
     const session = await requireSession(req);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { pdfUrl, strokes, canvasWidth, canvasHeight } = (await req.json()) as {
+    const {
+      pdfUrl,
+      strokes,
+      canvasWidth,
+      canvasHeight,
+      replaceOriginal,
+      notebookId,
+      pageNumber,
+      customFilename,
+    } = (await req.json()) as {
       pdfUrl: string;
       strokes: Stroke[];
       canvasWidth: number;
       canvasHeight: number;
+      replaceOriginal?: boolean;
+      notebookId?: string;
+      pageNumber?: number;
+      customFilename?: string;
     };
 
     if (!pdfUrl) return NextResponse.json({ error: "pdfUrl required" }, { status: 400 });
+
+    const safeFilename = (customFilename || `annotated-${Date.now()}`).trim().replace(/[^a-zA-Z0-9_.-]/g, "_");
+    const finalFilename = safeFilename.endsWith(".pdf") ? safeFilename : `${safeFilename}.pdf`;
 
     let pdfBuffer: ArrayBuffer;
 
@@ -81,7 +97,8 @@ export async function POST(req: NextRequest) {
 
     const pdfDoc = await PDFDocument.load(pdfBuffer);
     const pages = pdfDoc.getPages();
-    const page = pages[0];
+    const targetPageIdx = Math.max(0, Math.min((pageNumber || 1) - 1, pages.length - 1));
+    const page = pages[targetPageIdx];
 
     const { width: pageWidth, height: pageHeight } = page.getSize();
 
@@ -120,11 +137,29 @@ export async function POST(req: NextRequest) {
     // 1. If Vercel Blob is configured
     if (process.env.BLOB_READ_WRITE_TOKEN) {
       const blob = await put(
-        `exports/${session.userId}/annotated-${Date.now()}.pdf`,
+        `exports/${session.userId}/${finalFilename}`,
         Buffer.from(annotatedBytes),
         { access: "public", contentType: "application/pdf" }
       );
-      return NextResponse.json({ data: { url: blob.url } });
+
+      if (replaceOriginal && notebookId) {
+        if (process.env.DATABASE_URL) {
+          const { Pool } = await import("pg");
+          const pool = new Pool({
+            connectionString: process.env.DATABASE_URL,
+            ssl: { rejectUnauthorized: false },
+          });
+          const client = await pool.connect();
+          try {
+            await client.query(`UPDATE pages SET pdf_url = $1 WHERE notebook_id = $2`, [blob.url, notebookId]);
+          } finally {
+            client.release();
+            await pool.end();
+          }
+        }
+      }
+
+      return NextResponse.json({ data: { url: blob.url, filename: finalFilename, replaced: !!replaceOriginal } });
     }
 
     // 2. Neon Database Storage
@@ -149,9 +184,22 @@ export async function POST(req: NextRequest) {
         `);
         await client.query(
           `INSERT INTO pdf_files (id, user_id, filename, content_base64) VALUES ($1, $2, $3, $4)`,
-          [exportId, session.userId, `annotated-${Date.now()}.pdf`, base64]
+          [exportId, session.userId, finalFilename, base64]
         );
-        return NextResponse.json({ data: { url: `/api/pdf/${exportId}` } });
+
+        const newPdfUrl = `/api/pdf/${exportId}`;
+
+        if (replaceOriginal && notebookId) {
+          await client.query(`UPDATE pages SET pdf_url = $1 WHERE notebook_id = $2`, [newPdfUrl, notebookId]);
+        }
+
+        return NextResponse.json({
+          data: {
+            url: newPdfUrl,
+            filename: finalFilename,
+            replaced: !!replaceOriginal,
+          },
+        });
       } finally {
         client.release();
         await pool.end();
@@ -160,7 +208,13 @@ export async function POST(req: NextRequest) {
 
     // 3. Fallback data URI
     const dataUri = `data:application/pdf;base64,${Buffer.from(annotatedBytes).toString("base64")}`;
-    return NextResponse.json({ data: { url: dataUri } });
+    return NextResponse.json({
+      data: {
+        url: dataUri,
+        filename: finalFilename,
+        replaced: false,
+      },
+    });
   } catch (err: unknown) {
     console.error("PDF export error:", err);
     return NextResponse.json(

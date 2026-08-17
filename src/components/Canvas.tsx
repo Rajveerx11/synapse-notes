@@ -14,6 +14,8 @@ interface Props {
   initialStrokes: Stroke[];
 }
 
+type PaperType = "dots" | "ruled" | "graph" | "blank";
+
 export default function Canvas({
   pageNumber,
   tool,
@@ -31,6 +33,7 @@ export default function Canvas({
   const [canUndo, setCanUndo] = useState(initialStrokes.length > 0);
   const [canRedo, setCanRedo] = useState(false);
   const redoStackRef = useRef<Stroke[][]>([]);
+  const [paperType, setPaperType] = useState<PaperType>("dots");
 
   function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     if (!stroke || !stroke.points || stroke.points.length < 2) return;
@@ -279,52 +282,105 @@ export default function Canvas({
     onStrokesChange(pageNumber, newStrokes);
   }
 
+  const paperClass =
+    paperType === "dots"
+      ? styles.paperDots
+      : paperType === "ruled"
+      ? styles.paperRuled
+      : paperType === "graph"
+      ? styles.paperGraph
+      : styles.paperBlank;
+
   return (
-    <div ref={containerRef} className={styles.container}>
+    <div ref={containerRef} className={`${styles.container} ${paperClass}`}>
       <canvas
         ref={canvasRef}
         className={styles.canvas}
         style={{ cursor: tool === "eraser" ? "cell" : "crosshair" }}
         id="main-canvas"
       />
-      <div className={styles.actions}>
-        <button
-          className="btn-icon"
-          onClick={undo}
-          disabled={!canUndo}
-          title="Undo (Ctrl+Z)"
-          id="undo-btn"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M3 7v6h6" />
-            <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
-          </svg>
-        </button>
-        <button
-          className="btn-icon"
-          onClick={redo}
-          disabled={!canRedo}
-          title="Redo (Ctrl+Y)"
-          id="redo-btn"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M21 7v6h-6" />
-            <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13" />
-          </svg>
-        </button>
-        <button
-          className="btn-icon"
-          onClick={clearPage}
-          title="Clear page"
-          id="clear-btn"
-          style={{ color: "var(--error)" }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <polyline points="3 6 5 6 21 6" />
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-            <path d="M10 11v6M14 11v6" />
-          </svg>
-        </button>
+
+      {/* Floating Bottom Action Bar */}
+      <div className={styles.bottomControls}>
+        <div className={styles.actionPill}>
+          {/* Paper template switcher */}
+          <div className={styles.paperSelector}>
+            <button
+              className={`${styles.paperBtn} ${paperType === "dots" ? styles.activePaper : ""}`}
+              onClick={() => setPaperType("dots")}
+              title="Dot Grid Paper"
+              id="paper-dots-btn"
+            >
+              Dots
+            </button>
+            <button
+              className={`${styles.paperBtn} ${paperType === "ruled" ? styles.activePaper : ""}`}
+              onClick={() => setPaperType("ruled")}
+              title="Ruled Line Paper"
+              id="paper-ruled-btn"
+            >
+              Ruled
+            </button>
+            <button
+              className={`${styles.paperBtn} ${paperType === "graph" ? styles.activePaper : ""}`}
+              onClick={() => setPaperType("graph")}
+              title="Graph Grid Paper"
+              id="paper-graph-btn"
+            >
+              Graph
+            </button>
+            <button
+              className={`${styles.paperBtn} ${paperType === "blank" ? styles.activePaper : ""}`}
+              onClick={() => setPaperType("blank")}
+              title="Blank Paper"
+              id="paper-blank-btn"
+            >
+              Blank
+            </button>
+          </div>
+
+          <div className={styles.divider} />
+
+          {/* Undo / Redo / Clear */}
+          <button
+            className="btn-icon"
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (Ctrl+Z)"
+            id="undo-btn"
+            style={{ width: 28, height: 28 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M3 7v6h6" />
+              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+            </svg>
+          </button>
+          <button
+            className="btn-icon"
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (Ctrl+Y)"
+            id="redo-btn"
+            style={{ width: 28, height: 28 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M21 7v6h-6" />
+              <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13" />
+            </svg>
+          </button>
+          <button
+            className="btn-icon"
+            onClick={clearPage}
+            title="Clear page"
+            id="clear-btn"
+            style={{ width: 28, height: 28, color: "var(--error)" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   );

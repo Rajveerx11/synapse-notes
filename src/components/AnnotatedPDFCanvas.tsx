@@ -2,10 +2,13 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Stroke } from "@/lib/types";
 import { v4 as uuid } from "uuid";
+import PDFExportModal from "./PDFExportModal";
 import styles from "./AnnotatedPDFCanvas.module.css";
 
 interface Props {
   url: string;
+  notebookId?: string;
+  notebookTitle?: string;
   tool: "pen" | "highlighter" | "eraser" | "lasso";
   color: string;
   size: number;
@@ -13,11 +16,14 @@ interface Props {
   onPageChange: (page: number) => void;
   initialStrokes: Stroke[];
   onStrokesChange: (pageNumber: number, strokes: Stroke[]) => void;
+  onPdfUrlChange?: (newUrl: string) => void;
   onClose: () => void;
 }
 
 export default function AnnotatedPDFCanvas({
   url,
+  notebookId,
+  notebookTitle,
   tool,
   color,
   size,
@@ -25,6 +31,7 @@ export default function AnnotatedPDFCanvas({
   onPageChange,
   initialStrokes,
   onStrokesChange,
+  onPdfUrlChange,
   onClose,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -33,7 +40,8 @@ export default function AnnotatedPDFCanvas({
 
   const [numPages, setNumPages] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [exportUrl, setExportUrl] = useState<string | null>(null);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -296,29 +304,71 @@ export default function AnnotatedPDFCanvas({
     onStrokesChange(pageNumber, prev);
   }
 
-  async function exportAnnotatedPDF() {
-    setExporting(true);
-    setExportUrl(null);
-    const canvas = drawCanvasRef.current!;
-    const res = await fetch("/api/pdf/export", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        pdfUrl: url,
-        strokes: strokesRef.current,
-        canvasWidth: canvas.clientWidth,
-        canvasHeight: canvas.clientHeight,
-      }),
-    });
-    setExporting(false);
-    if (res.ok) {
+  // ── Handle Modal Export ───────────────────
+  async function handleModalExport(options: { filename: string; mode: "replace" | "copy" }) {
+    setIsExporting(true);
+    try {
+      const canvas = drawCanvasRef.current!;
+      const res = await fetch("/api/pdf/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pdfUrl: url,
+          strokes: strokesRef.current,
+          canvasWidth: canvas.clientWidth,
+          canvasHeight: canvas.clientHeight,
+          replaceOriginal: options.mode === "replace",
+          notebookId,
+          pageNumber,
+          customFilename: options.filename,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json();
+        throw new Error(errJson.error || "Export failed");
+      }
+
       const json = await res.json();
-      setExportUrl(json.data.url);
+      const newUrl = json.data?.url;
+
+      if (options.mode === "replace") {
+        if (onPdfUrlChange && newUrl) {
+          onPdfUrlChange(newUrl);
+        }
+        alert("✅ Notebook slide deck successfully updated with your vector annotations!");
+      } else {
+        // Trigger direct download
+        const a = document.createElement("a");
+        a.href = newUrl;
+        a.download = json.data?.filename || "annotated.pdf";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+
+      setExportUrl(newUrl);
+      setShowExportModal(false);
+    } catch (err) {
+      console.error("PDF export error:", err);
+      alert(err instanceof Error ? err.message : "Failed to export PDF");
+    } finally {
+      setIsExporting(false);
     }
   }
 
   return (
     <div className={styles.wrapper}>
+      {/* Export Options Modal */}
+      <PDFExportModal
+        isOpen={showExportModal}
+        defaultTitle={notebookTitle || "Lecture_Notes"}
+        onClose={() => setShowExportModal(false)}
+        onExport={handleModalExport}
+        isExporting={isExporting}
+        hasOriginalPdf={true}
+      />
+
       {/* Controls Bar */}
       <div className={styles.controls}>
         <button className="btn-icon" onClick={undo} title="Undo">
@@ -335,6 +385,7 @@ export default function AnnotatedPDFCanvas({
             <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
           </svg>
         </button>
+
         <div className={styles.paginator}>
           <button
             className="btn-icon"
@@ -372,15 +423,17 @@ export default function AnnotatedPDFCanvas({
             </svg>
           </button>
         </div>
+
         <button
           className="btn btn-primary"
-          onClick={exportAnnotatedPDF}
-          disabled={exporting}
+          onClick={() => setShowExportModal(true)}
+          disabled={loading}
           id="export-pdf-btn"
-          style={{ fontSize: "var(--text-xs)", padding: "6px 12px" }}
+          style={{ fontSize: "var(--text-xs)", padding: "6px 14px" }}
         >
-          {exporting ? "Exporting…" : "Export PDF"}
+          <span>Export PDF ▾</span>
         </button>
+
         {exportUrl && (
           <a
             href={exportUrl}
@@ -396,6 +449,7 @@ export default function AnnotatedPDFCanvas({
             ↓ Download
           </a>
         )}
+
         <button
           className="btn btn-ghost"
           onClick={onClose}

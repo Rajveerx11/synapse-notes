@@ -7,6 +7,7 @@ import Toolbar from "./Toolbar";
 import AnnotatedPDFCanvas from "./AnnotatedPDFCanvas";
 import StudyCard from "./StudyCard";
 import ThemeToggle from "./ThemeToggle";
+import PDFExportModal from "./PDFExportModal";
 import {
   getActiveCanvasSnapshot,
   exportCanvasToImage,
@@ -47,8 +48,9 @@ export default function NotebookEditor({
   const [pages, setPages] = useState<Page[]>(initialPages);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
 
-  // Export state
+  // Export state & modals
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showPdfModal, setShowPdfModal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -225,18 +227,21 @@ export default function NotebookEditor({
     setSaveStatus("saved");
   }
 
-  // ── Export Handlers ───────────────────────
+  // ── Universal Export Trigger ───────────────────
   async function triggerExport(type: "pdf" | "png" | "docx" | "pptx" | "xlsx") {
     setShowExportMenu(false);
-    setIsExporting(true);
 
+    if (type === "pdf") {
+      setShowPdfModal(true);
+      return;
+    }
+
+    setIsExporting(true);
     try {
       const snapshot = getActiveCanvasSnapshot();
 
       if (type === "png") {
         await exportCanvasToImage("png", notebook.title || "notebook");
-      } else if (type === "pdf") {
-        await exportToPDF(notebook, pages, snapshot);
       } else if (type === "docx") {
         await exportToWord(notebook, pages, cards, snapshot);
       } else if (type === "pptx") {
@@ -252,8 +257,73 @@ export default function NotebookEditor({
     }
   }
 
+  // ── Handle Modal PDF Export ───────────────────
+  async function handleModalPdfExport(options: { filename: string; mode: "replace" | "copy" }) {
+    setIsExporting(true);
+    try {
+      if (pdfUrl) {
+        const mainCanvas = document.querySelector("canvas");
+        const res = await fetch("/api/pdf/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pdfUrl,
+            strokes: currentStrokes,
+            canvasWidth: mainCanvas?.clientWidth || 800,
+            canvasHeight: mainCanvas?.clientHeight || 600,
+            replaceOriginal: options.mode === "replace",
+            notebookId: notebook.id,
+            pageNumber: currentPage,
+            customFilename: options.filename,
+          }),
+        });
+
+        if (!res.ok) {
+          const errJson = await res.json();
+          throw new Error(errJson.error || "PDF export failed");
+        }
+
+        const json = await res.json();
+        const downloadUrl = json.data?.url;
+
+        if (options.mode === "replace") {
+          setPdfUrl(downloadUrl);
+          alert("✅ Notebook slide deck successfully updated with your vector annotations!");
+        } else {
+          const a = document.createElement("a");
+          a.href = downloadUrl;
+          a.download = json.data?.filename || `${options.filename}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }
+      } else {
+        // Blank notebook export to PDF
+        const snapshot = getActiveCanvasSnapshot();
+        await exportToPDF(notebook, pages, snapshot);
+      }
+
+      setShowPdfModal(false);
+    } catch (err) {
+      console.error("PDF export error:", err);
+      alert(err instanceof Error ? err.message : "Failed to export PDF");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   return (
     <div className={styles.layout}>
+      {/* PDF Export Options Modal */}
+      <PDFExportModal
+        isOpen={showPdfModal}
+        defaultTitle={notebook.title || "Notebook"}
+        onClose={() => setShowPdfModal(false)}
+        onExport={handleModalPdfExport}
+        isExporting={isExporting}
+        hasOriginalPdf={!!pdfUrl}
+      />
+
       {/* Top Bar */}
       <header className={styles.topBar}>
         <div className={styles.topLeft}>
@@ -286,7 +356,7 @@ export default function NotebookEditor({
             {notebook.subject && <span className={styles.notebookSubject}>{notebook.subject}</span>}
           </div>
           <span className={`${styles.saveBadge} ${saveStatus === "saving" ? styles.saving : ""}`}>
-            {saveStatus === "saving" ? "Saving…" : "Saved ✓"}
+            {saveStatus === "saving" ? "Saving…" : "Synced ✓"}
           </span>
         </div>
 
@@ -386,7 +456,7 @@ export default function NotebookEditor({
                   <span className={styles.exportIcon}>📄</span>
                   <div className={styles.exportItemText}>
                     <span>PDF Document (.pdf)</span>
-                    <span className={styles.exportItemSub}>Vector document & slide annotations</span>
+                    <span className={styles.exportItemSub}>Replace original or save copy</span>
                   </div>
                 </button>
 
@@ -460,6 +530,8 @@ export default function NotebookEditor({
             <AnnotatedPDFCanvas
               key={`pdf-page-${currentPage}`}
               url={pdfUrl}
+              notebookId={notebook.id}
+              notebookTitle={notebook.title}
               tool={tool}
               color={color}
               size={size}
@@ -467,6 +539,7 @@ export default function NotebookEditor({
               onPageChange={setCurrentPage}
               initialStrokes={currentStrokes}
               onStrokesChange={handleStrokeSave}
+              onPdfUrlChange={setPdfUrl}
               onClose={() => setShowPDF(false)}
             />
           ) : (
