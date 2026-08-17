@@ -1,4 +1,3 @@
-import { neon, NeonQueryFunction } from "@neondatabase/serverless";
 import { Pool } from "pg";
 import { User, Notebook, Page, AiCard } from "./types";
 import { v4 as uuid } from "uuid";
@@ -37,26 +36,15 @@ function saveFallbackData(data: FallbackData): void {
   }
 }
 
-let neonSql: NeonQueryFunction<false, false> | null = null;
 let pgPool: Pool | null = null;
 let schemaInitialized = false;
 
-// Query executor supporting both Neon and Supabase/standard Postgres
+// Query executor supporting Neon, Supabase, and any standard PostgreSQL
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function queryDb<T = any>(queryText: string, params: any[] = []): Promise<T[]> {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("NO_DATABASE_URL");
 
-  // If Neon database
-  if (dbUrl.includes("neon.tech")) {
-    if (!neonSql) {
-      neonSql = neon(dbUrl);
-    }
-    // Neon template literal or function
-    const res = await (neonSql as any)(queryText, params);
-    return (res || []) as T[];
-  }
-
-  // Supabase or standard PostgreSQL
   if (!pgPool) {
     pgPool = new Pool({
       connectionString: dbUrl,
@@ -64,6 +52,7 @@ async function queryDb<T = any>(queryText: string, params: any[] = []): Promise<
       max: 10,
     });
   }
+
   const client = await pgPool.connect();
   try {
     const res = await client.query(queryText, params);
