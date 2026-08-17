@@ -64,7 +64,6 @@ export default function NotebookEditor({
         }
         if (parsed.pages && parsed.pages.length > 0) {
           setPages(prev => {
-            // Keep local strokes if server has empty
             const map = new Map<number, Page>();
             for (const p of parsed.pages) map.set(p.page_number, p);
             for (const p of prev) {
@@ -107,7 +106,6 @@ export default function NotebookEditor({
     (strokes: Stroke[]) => {
       setSaveStatus("saving");
 
-      // Update in-memory state and localStorage immediately
       setPages(prev => {
         const idx = prev.findIndex(p => p.page_number === currentPage);
         let updated: Page[];
@@ -133,7 +131,6 @@ export default function NotebookEditor({
         return updated;
       });
 
-      // Debounce server background sync
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
         try {
@@ -190,9 +187,12 @@ export default function NotebookEditor({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ page_number: currentPage, pdf_url: url }),
         });
+      } else {
+        alert(json.error || "Failed to upload PDF");
       }
     } catch (err) {
       console.error("PDF upload error:", err);
+      alert("Network error while uploading PDF. Please try again.");
     }
     setSaveStatus("saved");
   }
@@ -264,7 +264,13 @@ export default function NotebookEditor({
           )}
 
           <label className="btn-icon" title="Import PDF Slides" style={{ cursor: "pointer" }} id="import-pdf-btn">
-            <input type="file" accept="application/pdf" onChange={uploadPDF} style={{ display: "none" }} />
+            <input
+              type="file"
+              accept="application/pdf,application/x-pdf,.pdf"
+              onChange={uploadPDF}
+              style={{ display: "none" }}
+              id="pdf-file-input"
+            />
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="17 8 12 3 7 8" />
