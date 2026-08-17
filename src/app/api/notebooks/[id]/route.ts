@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { requireSession } from "@/lib/auth";
-import { Notebook } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -11,17 +10,17 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const db = getDb();
-  const notebook = db
-    .prepare("SELECT * FROM notebooks WHERE id = ? AND user_id = ?")
-    .get(id, session.userId) as Notebook | undefined;
 
-  if (!notebook) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const notebooks = await db`
+    SELECT * FROM notebooks WHERE id = ${id} AND user_id = ${session.userId}
+  `;
+  if (notebooks.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const pages = db
-    .prepare("SELECT * FROM pages WHERE notebook_id = ? ORDER BY page_number")
-    .all(id);
+  const pages = await db`
+    SELECT * FROM pages WHERE notebook_id = ${id} ORDER BY page_number
+  `;
 
-  return NextResponse.json({ data: { notebook, pages } });
+  return NextResponse.json({ data: { notebook: notebooks[0], pages } });
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -30,17 +29,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const db = getDb();
-  const notebook = db
-    .prepare("SELECT id FROM notebooks WHERE id = ? AND user_id = ?")
-    .get(id, session.userId);
-  if (!notebook) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const existing = await db`SELECT id FROM notebooks WHERE id = ${id} AND user_id = ${session.userId}`;
+  if (existing.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const { title, subject } = await req.json();
   const now = Math.floor(Date.now() / 1000);
-  db.prepare(
-    "UPDATE notebooks SET title = COALESCE(?, title), subject = COALESCE(?, subject), updated_at = ? WHERE id = ?"
-  ).run(title ?? null, subject ?? null, now, id);
 
+  await db`
+    UPDATE notebooks SET
+      title = COALESCE(${title ?? null}, title),
+      subject = COALESCE(${subject ?? null}, subject),
+      updated_at = ${now}
+    WHERE id = ${id}
+  `;
   return NextResponse.json({ ok: true });
 }
 
@@ -50,6 +52,6 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
   const { id } = await params;
   const db = getDb();
-  db.prepare("DELETE FROM notebooks WHERE id = ? AND user_id = ?").run(id, session.userId);
+  await db`DELETE FROM notebooks WHERE id = ${id} AND user_id = ${session.userId}`;
   return NextResponse.json({ ok: true });
 }

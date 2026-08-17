@@ -13,22 +13,22 @@ export default async function NotebookPage({ params }: Props) {
   const { id } = await params;
   const db = getDb();
 
-  const notebook = db
-    .prepare("SELECT * FROM notebooks WHERE id = ? AND user_id = ?")
-    .get(id, session.userId) as Notebook | undefined;
-  if (!notebook) notFound();
+  const notebooks = await db`
+    SELECT * FROM notebooks WHERE id = ${id} AND user_id = ${session.userId}
+  ` as Notebook[];
+  if (notebooks.length === 0) notFound();
 
-  const pages = db
-    .prepare("SELECT * FROM pages WHERE notebook_id = ? ORDER BY page_number")
-    .all(id) as Page[];
+  const pages = await db`
+    SELECT * FROM pages WHERE notebook_id = ${id} ORDER BY page_number
+  ` as Page[];
 
-  const cards = db
-    .prepare("SELECT * FROM ai_cards WHERE notebook_id = ? ORDER BY created_at DESC")
-    .all(id) as AiCard[];
+  const cards = await db`
+    SELECT * FROM ai_cards WHERE notebook_id = ${id} ORDER BY created_at DESC
+  ` as AiCard[];
 
   return (
     <NotebookEditor
-      notebook={notebook}
+      notebook={notebooks[0]}
       initialPages={pages}
       initialCards={cards}
       username={session.username}

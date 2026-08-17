@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db";
+import { getDb, bootstrapSchema } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { signToken } from "@/lib/auth";
 import { v4 as uuid } from "uuid";
@@ -13,22 +13,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  await bootstrapSchema();
   const db = getDb();
-  const existing = db
-    .prepare("SELECT id FROM users WHERE username = ?")
-    .get(username);
-  if (existing) {
-    return NextResponse.json(
-      { error: "Username already taken" },
-      { status: 409 }
-    );
+
+  const existing = await db`SELECT id FROM users WHERE username = ${username}`;
+  if (existing.length > 0) {
+    return NextResponse.json({ error: "Username already taken" }, { status: 409 });
   }
 
   const id = uuid();
   const password_hash = await bcrypt.hash(password, 12);
-  db.prepare(
-    "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)"
-  ).run(id, username, password_hash);
+  await db`INSERT INTO users (id, username, password_hash) VALUES (${id}, ${username}, ${password_hash})`;
 
   const token = await signToken({ userId: id, username });
   const res = NextResponse.json({ ok: true });

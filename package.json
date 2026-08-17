@@ -8,6 +8,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "@vercel/blob": "^2.8.0",
     "bcryptjs": "^3.0.2",
     "better-sqlite3": "^11.10.0",
     "jose": "^6.0.10",

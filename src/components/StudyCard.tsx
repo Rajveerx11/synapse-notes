@@ -50,7 +50,7 @@ export default function StudyCard({ card }: Props) {
         const id = `mermaid-${card.id}`;
         const { svg } = await mermaid.render(id, card.diagram_data);
         el.innerHTML = svg;
-      } catch (e) {
+      } catch {
         el.innerHTML = `<pre class="${styles.diagramError}">${card.diagram_data}</pre>`;
       }
     }
@@ -98,7 +98,7 @@ function mdToHtml(md: string): string {
     .replace(/^### (.+)$/gm, "<h4>$1</h4>")
     .replace(/^## (.+)$/gm, "<h3>$1</h3>")
     .replace(/^- (.+)$/gm, "<li>$1</li>")
-    .replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>")
+    .replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>")
     .replace(/\n\n/g, "<br/><br/>")
     .replace(/\n/g, "<br/>");
 }

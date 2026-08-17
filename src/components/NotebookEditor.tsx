@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Notebook, Page, AiCard, Stroke } from "@/lib/types";
 import Canvas from "./Canvas";
 import Toolbar from "./Toolbar";
-import PDFViewer from "./PDFViewer";
+import AnnotatedPDFCanvas from "./AnnotatedPDFCanvas";
 import StudyCard from "./StudyCard";
 import ThemeToggle from "./ThemeToggle";
 import styles from "./NotebookEditor.module.css";
@@ -26,11 +26,14 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
 
   // Page state
   const [currentPage, setCurrentPage] = useState(1);
-  const totalPages = Math.max(initialPages.length, currentPage);
+  const [pages, setPages] = useState<Page[]>(initialPages);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
 
   // Panel state
   const [showCards, setShowCards] = useState(false);
-  const [showPDF, setShowPDF] = useState(false);
+  const [showPDF, setShowPDF] = useState(
+    !!initialPages.find(p => p.page_number === 1)?.pdf_url
+  );
   const [pdfUrl, setPdfUrl] = useState<string | null>(
     initialPages.find(p => p.page_number === 1)?.pdf_url ?? null
   );
@@ -39,11 +42,15 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
   // Auto-save debounce ref
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const currentPageData = pages.find(p => p.page_number === currentPage);
+  const currentStrokes: Stroke[] = JSON.parse(currentPageData?.strokes_json || "[]");
+
   const handleStrokeSave = useCallback(
     (strokes: Stroke[]) => {
+      setSaveStatus("saving");
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
-        await fetch(`/api/notebooks/${notebook.id}/pages`, {
+        const res = await fetch(`/api/notebooks/${notebook.id}/pages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -51,14 +58,40 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
             strokes_json: JSON.stringify(strokes),
           }),
         });
-      }, 1500);
+        if (res.ok) {
+          setSaveStatus("saved");
+          setPages(prev => {
+            const idx = prev.findIndex(p => p.page_number === currentPage);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = { ...copy[idx], strokes_json: JSON.stringify(strokes) };
+              return copy;
+            } else {
+              return [
+                ...prev,
+                {
+                  id: "temp",
+                  notebook_id: notebook.id,
+                  page_number: currentPage,
+                  strokes_json: JSON.stringify(strokes),
+                  text_content: "",
+                  pdf_url: pdfUrl,
+                  pdf_page: 1,
+                  updated_at: Math.floor(Date.now() / 1000),
+                },
+              ];
+            }
+          });
+        }
+      }, 1200);
     },
-    [notebook.id, currentPage]
+    [notebook.id, currentPage, pdfUrl]
   );
 
   async function uploadPDF(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setSaveStatus("saving");
     const form = new FormData();
     form.append("file", file);
     const res = await fetch("/api/pdf", { method: "POST", body: form });
@@ -72,13 +105,11 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ page_number: currentPage, pdf_url: url }),
       });
+      setSaveStatus("saved");
     }
   }
 
-  const pageCards = cards.filter(c => {
-    const page = initialPages.find(p => p.notebook_id === notebook.id);
-    return true; // Show all cards in sidebar for v1
-  });
+  const totalPages = Math.max(pages.length, currentPage);
 
   return (
     <div className={styles.layout}>
@@ -94,29 +125,48 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
             <span className={styles.notebookTitle}>{notebook.title}</span>
             {notebook.subject && <span className={styles.notebookSubject}>{notebook.subject}</span>}
           </div>
+          <span className={`${styles.saveBadge} ${saveStatus === "saving" ? styles.saving : ""}`}>
+            {saveStatus === "saving" ? "Saving…" : "Saved ✓"}
+          </span>
         </div>
 
         <div className={styles.topCenter}>
           <button
             className={`btn-icon ${!showPDF ? "active" : ""}`}
             onClick={() => setShowPDF(false)}
-            title="Canvas only"
+            title="Blank Canvas Mode"
             id="canvas-mode-btn"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" />
-              <path d="M9 9l2 2 4-4M9 15l2 2 4-4" opacity="0" />
+              <line x1="9" y1="3" x2="9" y2="21" />
             </svg>
           </button>
-          <label className="btn-icon" title="Import PDF" style={{ cursor: "pointer" }} id="import-pdf-btn">
+
+          {pdfUrl && (
+            <button
+              className={`btn-icon ${showPDF ? "active" : ""}`}
+              onClick={() => setShowPDF(true)}
+              title="Annotate PDF Slides"
+              id="pdf-mode-btn"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <path d="M12 18l4-4-4-4" />
+              </svg>
+            </button>
+          )}
+
+          <label className="btn-icon" title="Import PDF Slides" style={{ cursor: "pointer" }} id="import-pdf-btn">
             <input type="file" accept="application/pdf" onChange={uploadPDF} style={{ display: "none" }} />
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="12" y1="18" x2="12" y2="12" />
-              <line x1="9" y1="15" x2="15" y2="15" />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
           </label>
+
           <div className={styles.pageIndicator}>
             <button
               className="btn-icon"
@@ -167,13 +217,17 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
           onSizeChange={setSize}
         />
 
-        {/* Canvas + PDF */}
+        {/* Canvas / Annotated PDF */}
         <main className={styles.canvasArea}>
           {showPDF && pdfUrl ? (
-            <PDFViewer
+            <AnnotatedPDFCanvas
               url={pdfUrl}
+              tool={tool}
+              color={color}
+              size={size}
+              initialStrokes={currentStrokes}
+              onStrokesChange={handleStrokeSave}
               onClose={() => setShowPDF(false)}
-              onAnnotate={() => {}}
             />
           ) : (
             <Canvas
@@ -183,11 +237,7 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
               color={color}
               size={size}
               onStrokesChange={handleStrokeSave}
-              initialStrokes={
-                JSON.parse(
-                  initialPages.find(p => p.page_number === currentPage)?.strokes_json ?? "[]"
-                ) as Stroke[]
-              }
+              initialStrokes={currentStrokes}
             />
           )}
         </main>
@@ -204,9 +254,12 @@ export default function NotebookEditor({ notebook, initialPages, initialCards, u
             <div className={styles.cardsList}>
               {cards.length === 0 ? (
                 <div className={styles.emptyCards}>
-                  <p>No AI cards yet.</p>
-                  <p className="text-xs text-muted" style={{ marginTop: 8 }}>
-                    Ask your AI agent (Claude Code / Codex) to explain a topic from your notes!
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" opacity="0.3">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                  </svg>
+                  <p style={{ marginTop: 8, fontWeight: 500 }}>No AI cards yet</p>
+                  <p className="text-xs text-muted" style={{ marginTop: 4 }}>
+                    Ask Claude Code or Codex to explain a concept from your notes!
                   </p>
                 </div>
               ) : (

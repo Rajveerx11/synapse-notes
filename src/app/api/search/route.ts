@@ -13,29 +13,25 @@ export async function GET(req: NextRequest) {
   const db = getDb();
   const like = `%${query}%`;
 
-  const results = db
-    .prepare(
-      `SELECT p.notebook_id, p.page_number, p.text_content,
-              n.title as notebook_title, n.subject
-       FROM pages p
-       JOIN notebooks n ON n.id = p.notebook_id
-       WHERE n.user_id = ?
-         AND (p.text_content LIKE ? OR p.strokes_json LIKE ?)
-       LIMIT 20`
-    )
-    .all(session.userId, like, like);
+  const pageResults = await db`
+    SELECT p.notebook_id, p.page_number, p.text_content,
+           n.title as notebook_title, n.subject
+    FROM pages p
+    JOIN notebooks n ON n.id = p.notebook_id
+    WHERE n.user_id = ${session.userId}
+      AND (p.text_content ILIKE ${like})
+    LIMIT 20
+  `;
 
-  const cardResults = db
-    .prepare(
-      `SELECT ac.title, ac.content, ac.notebook_id, p.page_number, n.title as notebook_title
-       FROM ai_cards ac
-       JOIN pages p ON p.id = ac.page_id
-       JOIN notebooks n ON n.id = ac.notebook_id
-       WHERE n.user_id = ?
-         AND (ac.title LIKE ? OR ac.content LIKE ?)
-       LIMIT 10`
-    )
-    .all(session.userId, like, like);
+  const cardResults = await db`
+    SELECT ac.title, ac.content, ac.notebook_id, p.page_number, n.title as notebook_title
+    FROM ai_cards ac
+    JOIN pages p ON p.id = ac.page_id
+    JOIN notebooks n ON n.id = ac.notebook_id
+    WHERE n.user_id = ${session.userId}
+      AND (ac.title ILIKE ${like} OR ac.content ILIKE ${like})
+    LIMIT 10
+  `;
 
-  return NextResponse.json({ data: { pages: results, cards: cardResults } });
+  return NextResponse.json({ data: { pages: pageResults, cards: cardResults } });
 }
