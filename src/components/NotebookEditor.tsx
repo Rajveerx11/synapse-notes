@@ -7,6 +7,14 @@ import Toolbar from "./Toolbar";
 import AnnotatedPDFCanvas from "./AnnotatedPDFCanvas";
 import StudyCard from "./StudyCard";
 import ThemeToggle from "./ThemeToggle";
+import {
+  getActiveCanvasSnapshot,
+  exportCanvasToImage,
+  exportToPDF,
+  exportToWord,
+  exportToPowerPoint,
+  exportToExcel,
+} from "@/lib/exportUtils";
 import styles from "./NotebookEditor.module.css";
 
 interface Props {
@@ -39,6 +47,11 @@ export default function NotebookEditor({
   const [pages, setPages] = useState<Page[]>(initialPages);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving">("saved");
 
+  // Export state
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+
   // Panel state
   const [showCards, setShowCards] = useState(false);
   const [showPDF, setShowPDF] = useState(
@@ -51,6 +64,17 @@ export default function NotebookEditor({
 
   // Auto-save debounce ref
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Close export menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Client hydration from localStorage on mount
   useEffect(() => {
@@ -197,6 +221,33 @@ export default function NotebookEditor({
     setSaveStatus("saved");
   }
 
+  // ── Export Handlers ───────────────────────
+  async function triggerExport(type: "pdf" | "png" | "docx" | "pptx" | "xlsx") {
+    setShowExportMenu(false);
+    setIsExporting(true);
+
+    try {
+      const snapshot = getActiveCanvasSnapshot();
+
+      if (type === "png") {
+        await exportCanvasToImage("png", notebook.title || "notebook");
+      } else if (type === "pdf") {
+        await exportToPDF(notebook, pages, snapshot);
+      } else if (type === "docx") {
+        await exportToWord(notebook, pages, cards, snapshot);
+      } else if (type === "pptx") {
+        await exportToPowerPoint(notebook, pages, cards, snapshot);
+      } else if (type === "xlsx") {
+        exportToExcel(notebook, pages, cards);
+      }
+    } catch (err) {
+      console.error("Export error:", err);
+      alert("Failed to export. Please try again.");
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   return (
     <div className={styles.layout}>
       {/* Top Bar */}
@@ -299,6 +350,77 @@ export default function NotebookEditor({
         </div>
 
         <div className={styles.topRight}>
+          {/* Universal Multi-Format Export Dropdown */}
+          <div ref={exportRef} className={styles.exportContainer}>
+            <button
+              className={styles.exportBtn}
+              onClick={() => setShowExportMenu(m => !m)}
+              disabled={isExporting}
+              title="Export Notebook to PDF, Word, PowerPoint, Excel, or Image"
+              id="export-dropdown-btn"
+            >
+              {isExporting ? (
+                <span>Exporting…</span>
+              ) : (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  <span>Export</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </>
+              )}
+            </button>
+
+            {showExportMenu && (
+              <div className={styles.exportMenu} id="export-menu-list">
+                <button className={styles.exportItem} onClick={() => triggerExport("pdf")} id="export-pdf-opt">
+                  <span className={styles.exportIcon}>📄</span>
+                  <div className={styles.exportItemText}>
+                    <span>PDF Document (.pdf)</span>
+                    <span className={styles.exportItemSub}>Vector document & slide annotations</span>
+                  </div>
+                </button>
+
+                <button className={styles.exportItem} onClick={() => triggerExport("png")} id="export-png-opt">
+                  <span className={styles.exportIcon}>🖼️</span>
+                  <div className={styles.exportItemText}>
+                    <span>Image Snapshot (.png)</span>
+                    <span className={styles.exportItemSub}>High-resolution canvas image</span>
+                  </div>
+                </button>
+
+                <button className={styles.exportItem} onClick={() => triggerExport("docx")} id="export-docx-opt">
+                  <span className={styles.exportIcon}>📝</span>
+                  <div className={styles.exportItemText}>
+                    <span>Word Document (.docx)</span>
+                    <span className={styles.exportItemSub}>MS Word & Google Docs compatible</span>
+                  </div>
+                </button>
+
+                <button className={styles.exportItem} onClick={() => triggerExport("pptx")} id="export-pptx-opt">
+                  <span className={styles.exportIcon}>📊</span>
+                  <div className={styles.exportItemText}>
+                    <span>Presentation (.pptx)</span>
+                    <span className={styles.exportItemSub}>PowerPoint & Google Slides deck</span>
+                  </div>
+                </button>
+
+                <button className={styles.exportItem} onClick={() => triggerExport("xlsx")} id="export-xlsx-opt">
+                  <span className={styles.exportIcon}>📈</span>
+                  <div className={styles.exportItemText}>
+                    <span>Spreadsheet (.xlsx)</span>
+                    <span className={styles.exportItemSub}>Excel & Google Sheets study matrix</span>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             className={`btn-icon ${showCards ? "active" : ""}`}
             onClick={() => setShowCards(s => !s)}

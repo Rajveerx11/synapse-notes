@@ -51,11 +51,34 @@ Synapse Notes is engineered specifically for active digitizers (Wacom EMR in Sam
    * Use the **Pen** to write notes beside diagrams, or switch to **Highlighter** (which automatically preserves underlying text readability via multiply blend mode).
    * Navigate through slides using the **Page Indicator** arrows (`←` / `→`).
 3. **After Class:**
-   * Tap **"Export PDF"** to generate a single merged document with your vector handwriting permanently embedded into the lecture slides.
+   * Tap **"Export ▾"** → **"PDF Document (.pdf)"** to generate a single merged document with your vector handwriting permanently embedded into the lecture slides.
 
 ---
 
-## 4. ⚡ Offline Resilience & Local Storage Sync
+## 4. 📦 Universal Multi-Format Export Guide
+
+Synapse Notes allows exporting your notes and study decks directly from your tablet to any document suite:
+
+| Target Format | Compatibility | Contents |
+|---|---|---|
+| **📄 PDF Document (`.pdf`)** | Adobe Acrobat, Samsung Notes, Chrome | High-fidelity vector PDF with merged annotations. |
+| **🖼️ Image Snapshot (`.png` / `.jpg`)** | Gallery, Socials, Discord, Notion | High-resolution raster canvas image with crisp white background. |
+| **📝 Word Document (`.docx`)** | Microsoft Word, **Google Docs**, LibreOffice, WPS | Formatted document with titles, embedded canvas drawings, text notes, and AI study cards. |
+| **📊 Presentation (`.pptx`)** | Microsoft PowerPoint, **Google Slides**, Keynote | Full slide deck with 1 slide per page, canvas visuals on left, notes/equations on right. |
+| **📈 Spreadsheet (`.xlsx`)** | Microsoft Excel, **Google Sheets**, Numbers | Structured study matrix with *Overview*, *Pages & Notes*, and *AI Study Cards*. |
+
+### How to Open in Google Docs / Google Drive:
+1. Tap **"Export ▾"** → **"Word Document (.docx)"** on your tablet.
+2. In Google Drive on your tablet/laptop, upload or open the downloaded `.docx` file.
+3. Select **"Open with Google Docs"** to edit or share with classmates!
+
+### How to Open in Google Slides:
+1. Tap **"Export ▾"** → **"Presentation (.pptx)"**.
+2. Open Google Slides, click **File** → **Import Slides** or upload the `.pptx` directly to Google Drive.
+
+---
+
+## 5. ⚡ Offline Resilience & Local Storage Sync
 
 * All strokes and notebook changes are automatically cached in browser `localStorage` before background synchronization.
 * If university Wi-Fi drops or fluctuates during a lecture, your drawings are never lost. As soon as connectivity restores, Synapse synchronizes all pending changes with the cloud database.
