@@ -33,6 +33,9 @@ export default function NotebookEditor({
 }: Props) {
   const router = useRouter();
 
+  // Find any existing PDF URL across all initial pages
+  const initialPdfUrl = initialPages.find(p => !!p.pdf_url)?.pdf_url ?? null;
+
   // Notebook metadata state
   const [notebook, setNotebook] = useState<Notebook>(serverNotebook);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -54,14 +57,10 @@ export default function NotebookEditor({
   const [isExporting, setIsExporting] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
-  // Panel state
+  // Panel & PDF state with persistent restoration
   const [showCards, setShowCards] = useState(false);
-  const [showPDF, setShowPDF] = useState(
-    !!initialPages.find(p => p.page_number === 1)?.pdf_url
-  );
-  const [pdfUrl, setPdfUrl] = useState<string | null>(
-    initialPages.find(p => p.page_number === 1)?.pdf_url ?? null
-  );
+  const [pdfUrl, setPdfUrl] = useState<string | null>(initialPdfUrl);
+  const [showPDF, setShowPDF] = useState<boolean>(!!initialPdfUrl);
   const [cards, setCards] = useState<AiCard[]>(initialCards);
 
   // Auto-save debounce ref
@@ -78,7 +77,31 @@ export default function NotebookEditor({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Client hydration from localStorage on mount
+  const persistLocally = useCallback(
+    (
+      updatedPages: Page[],
+      currentTitle?: string,
+      activePdfUrl?: string | null,
+      activeShowPdf?: boolean
+    ) => {
+      try {
+        const payload = {
+          id: notebook.id,
+          title: currentTitle || notebook.title,
+          subject: notebook.subject,
+          pages: updatedPages,
+          pdfUrl: activePdfUrl !== undefined ? activePdfUrl : pdfUrl,
+          showPDF: activeShowPdf !== undefined ? activeShowPdf : showPDF,
+        };
+        localStorage.setItem(`synapse_nb_${notebook.id}`, JSON.stringify(payload));
+      } catch (e) {
+        console.warn("Local storage save error:", e);
+      }
+    },
+    [notebook.id, notebook.title, notebook.subject, pdfUrl, showPDF]
+  );
+
+  // Client hydration from localStorage on mount & hard refresh
   useEffect(() => {
     try {
       const cached = localStorage.getItem(`synapse_nb_${serverNotebook.id}`);
@@ -88,12 +111,30 @@ export default function NotebookEditor({
           setNotebook(prev => ({ ...prev, title: parsed.title, subject: parsed.subject || prev.subject }));
           setTitleInput(parsed.title);
         }
+
+        // Restore PDF URL and view mode if cached
+        const restoredPdfUrl = parsed.pdfUrl || initialPdfUrl;
+        if (restoredPdfUrl) {
+          setPdfUrl(restoredPdfUrl);
+          if (parsed.showPDF !== undefined) {
+            setShowPDF(parsed.showPDF);
+          } else {
+            setShowPDF(true);
+          }
+        }
+
         if (parsed.pages && parsed.pages.length > 0) {
           setPages(prev => {
             const map = new Map<number, Page>();
             for (const p of parsed.pages) map.set(p.page_number, p);
             for (const p of prev) {
-              if (p.strokes_json !== "[]" || !map.has(p.page_number)) {
+              const existing = map.get(p.page_number);
+              if (existing) {
+                map.set(p.page_number, {
+                  ...existing,
+                  pdf_url: existing.pdf_url || p.pdf_url || restoredPdfUrl || null,
+                });
+              } else {
                 map.set(p.page_number, p);
               }
             }
@@ -104,32 +145,13 @@ export default function NotebookEditor({
     } catch (e) {
       console.warn("Failed to load local notebook cache:", e);
     }
-  }, [serverNotebook.id, serverNotebook.title]);
+  }, [serverNotebook.id, serverNotebook.title, initialPdfUrl]);
 
   // Extract strokes specifically for current page
   const currentPageData = pages.find(p => p.page_number === currentPage);
   const currentStrokes: Stroke[] = currentPageData?.strokes_json
     ? JSON.parse(currentPageData.strokes_json)
     : [];
-
-  const persistLocally = useCallback(
-    (updatedPages: Page[], currentTitle?: string) => {
-      try {
-        localStorage.setItem(
-          `synapse_nb_${notebook.id}`,
-          JSON.stringify({
-            id: notebook.id,
-            title: currentTitle || notebook.title,
-            subject: notebook.subject,
-            pages: updatedPages,
-          })
-        );
-      } catch (e) {
-        console.warn("Local storage save error:", e);
-      }
-    },
-    [notebook.id, notebook.title, notebook.subject]
-  );
 
   // Save strokes scoped strictly to target pageNo
   const handleStrokeSave = useCallback(
@@ -170,6 +192,7 @@ export default function NotebookEditor({
             body: JSON.stringify({
               page_number: pageNo,
               strokes_json: JSON.stringify(strokes),
+              pdf_url: pdfUrl,
             }),
           });
         } catch (e) {
@@ -212,6 +235,13 @@ export default function NotebookEditor({
         const url = json.data.url;
         setPdfUrl(url);
         setShowPDF(true);
+
+        // Update pages in state and local storage immediately
+        const updated = pages.map(p => ({ ...p, pdf_url: url }));
+        setPages(updated);
+        persistLocally(updated, notebook.title, url, true);
+
+        // Sync to cloud database
         await fetch(`/api/notebooks/${notebook.id}/pages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -225,6 +255,11 @@ export default function NotebookEditor({
       alert("Network error while uploading PDF. Please try again.");
     }
     setSaveStatus("saved");
+  }
+
+  function handleTogglePdf(show: boolean) {
+    setShowPDF(show);
+    persistLocally(pages, notebook.title, pdfUrl, show);
   }
 
   // ── Universal Export Trigger ───────────────────
@@ -288,6 +323,7 @@ export default function NotebookEditor({
 
         if (options.mode === "replace") {
           setPdfUrl(downloadUrl);
+          persistLocally(pages, notebook.title, downloadUrl, true);
           alert("✅ Notebook slide deck successfully updated with your vector annotations!");
         } else {
           const a = document.createElement("a");
@@ -363,7 +399,7 @@ export default function NotebookEditor({
         <div className={styles.topCenter}>
           <button
             className={`btn-icon ${!showPDF ? "active" : ""}`}
-            onClick={() => setShowPDF(false)}
+            onClick={() => handleTogglePdf(false)}
             title="Blank Canvas Mode"
             id="canvas-mode-btn"
           >
@@ -376,7 +412,7 @@ export default function NotebookEditor({
           {pdfUrl && (
             <button
               className={`btn-icon ${showPDF ? "active" : ""}`}
-              onClick={() => setShowPDF(true)}
+              onClick={() => handleTogglePdf(true)}
               title="Annotate PDF Slides"
               id="pdf-mode-btn"
             >
@@ -539,8 +575,11 @@ export default function NotebookEditor({
               onPageChange={setCurrentPage}
               initialStrokes={currentStrokes}
               onStrokesChange={handleStrokeSave}
-              onPdfUrlChange={setPdfUrl}
-              onClose={() => setShowPDF(false)}
+              onPdfUrlChange={url => {
+                setPdfUrl(url);
+                persistLocally(pages, notebook.title, url, true);
+              }}
+              onClose={() => handleTogglePdf(false)}
             />
           ) : (
             <Canvas

@@ -364,6 +364,9 @@ export const dbService = {
               existing[0].id,
             ]
           );
+          if (update.pdf_url) {
+            await queryDb(`UPDATE pages SET pdf_url = $1 WHERE notebook_id = $2`, [update.pdf_url, notebookId]);
+          }
           return existing[0].id;
         } else {
           const pageId = uuid();
@@ -380,6 +383,9 @@ export const dbService = {
               update.pdf_page ?? null,
             ]
           );
+          if (update.pdf_url) {
+            await queryDb(`UPDATE pages SET pdf_url = $1 WHERE notebook_id = $2`, [update.pdf_url, notebookId]);
+          }
           await queryDb(`UPDATE notebooks SET updated_at = $1 WHERE id = $2`, [now, notebookId]);
           return pageId;
         }
