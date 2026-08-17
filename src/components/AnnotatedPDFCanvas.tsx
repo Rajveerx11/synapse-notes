@@ -9,8 +9,10 @@ interface Props {
   tool: "pen" | "highlighter" | "eraser" | "lasso";
   color: string;
   size: number;
+  pageNumber: number;
+  onPageChange: (page: number) => void;
   initialStrokes: Stroke[];
-  onStrokesChange: (strokes: Stroke[]) => void;
+  onStrokesChange: (pageNumber: number, strokes: Stroke[]) => void;
   onClose: () => void;
 }
 
@@ -19,6 +21,8 @@ export default function AnnotatedPDFCanvas({
   tool,
   color,
   size,
+  pageNumber,
+  onPageChange,
   initialStrokes,
   onStrokesChange,
   onClose,
@@ -28,7 +32,6 @@ export default function AnnotatedPDFCanvas({
   const drawCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [numPages, setNumPages] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportUrl, setExportUrl] = useState<string | null>(null);
@@ -44,7 +47,7 @@ export default function AnnotatedPDFCanvas({
   const undoStackRef = useRef<Stroke[][]>([initialStrokes]);
   const redoStackRef = useRef<Stroke[][]>([]);
 
-  // Load PDF
+  // Load PDF Document
   useEffect(() => {
     let cancelled = false;
     async function loadPDF() {
@@ -62,15 +65,20 @@ export default function AnnotatedPDFCanvas({
       }
     }
     loadPDF();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [url]);
 
-  // Render PDF page whenever current page or loading changes
+  // Render PDF slide and restore strokes for this specific page
   useEffect(() => {
     if (!pdfDocRef.current || loading) return;
-    renderPage(pdfDocRef.current, currentPage);
+    strokesRef.current = initialStrokes;
+    undoStackRef.current = [initialStrokes];
+    redoStackRef.current = [];
+    renderPage(pdfDocRef.current, pageNumber);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, currentPage]);
+  }, [loading, pageNumber, initialStrokes]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async function renderPage(pdf: any, pageNum: number) {
@@ -80,18 +88,22 @@ export default function AnnotatedPDFCanvas({
     if (!pdfCanvas || !drawCanvas || !container) return;
 
     if (renderTaskRef.current) {
-      try { renderTaskRef.current.cancel(); } catch {}
+      try {
+        renderTaskRef.current.cancel();
+      } catch {}
     }
 
-    const page = await pdf.getPage(pageNum);
-    const containerWidth = container.clientWidth;
-    const containerHeight = container.clientHeight;
+    const safePageNum = Math.max(1, Math.min(pageNum, pdf.numPages || 1));
+    const page = await pdf.getPage(safePageNum);
+    const containerWidth = container.clientWidth || 800;
+    const containerHeight = container.clientHeight || 600;
     const viewport = page.getViewport({ scale: 1 });
-    const scale = Math.min(
-      containerWidth / viewport.width,
-      containerHeight / viewport.height,
-    ) * 0.95;
-    const scaledViewport = page.getViewport({ scale });
+    const scale =
+      Math.min(
+        containerWidth / viewport.width,
+        containerHeight / viewport.height
+      ) * 0.95;
+    const scaledViewport = page.getViewport({ scale: scale || 1 });
 
     const dpr = window.devicePixelRatio || 1;
     const w = scaledViewport.width;
@@ -107,25 +119,33 @@ export default function AnnotatedPDFCanvas({
 
     const pdfCtx = pdfCanvas.getContext("2d")!;
     pdfCtx.scale(dpr, dpr);
-    const task = page.render({ canvasContext: pdfCtx, viewport: scaledViewport });
+    const task = page.render({
+      canvasContext: pdfCtx,
+      viewport: scaledViewport,
+    });
     renderTaskRef.current = task;
     try {
       await task.promise;
     } catch {}
 
-    // Restore strokes on draw canvas
+    // Restore strokes strictly for this page
     const drawCtx = drawCanvas.getContext("2d")!;
     drawCtx.scale(dpr, dpr);
     redrawAll(drawCtx, strokesRef.current, w, h);
   }
 
-  function redrawAll(ctx: CanvasRenderingContext2D, strokes: Stroke[], w: number, h: number) {
+  function redrawAll(
+    ctx: CanvasRenderingContext2D,
+    strokes: Stroke[],
+    w: number,
+    h: number
+  ) {
     ctx.clearRect(0, 0, w, h);
     for (const stroke of strokes) drawStroke(ctx, stroke);
   }
 
   function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
-    if (stroke.points.length < 2) return;
+    if (!stroke || !stroke.points || stroke.points.length < 2) return;
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -138,7 +158,7 @@ export default function AnnotatedPDFCanvas({
       ctx.globalAlpha = 1;
     } else {
       ctx.globalCompositeOperation = "source-over";
-      ctx.globalAlpha = stroke.opacity;
+      ctx.globalAlpha = stroke.opacity || 1;
     }
 
     ctx.strokeStyle = stroke.color;
@@ -159,57 +179,72 @@ export default function AnnotatedPDFCanvas({
   const getPos = useCallback((e: PointerEvent) => {
     const canvas = drawCanvasRef.current!;
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top, pressure: e.pressure || 0.5 };
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      pressure: e.pressure || 0.5,
+    };
   }, []);
 
-  const onPointerDown = useCallback((e: PointerEvent) => {
-    if (e.pointerType === "touch") return;
-    e.preventDefault();
-    isDrawingRef.current = true;
-    const pos = getPos(e);
-    const strokeSize = tool === "highlighter" ? size * 4 : tool === "eraser" ? size * 6 : size * (0.5 + pos.pressure * 1.5);
-    currentStrokeRef.current = {
-      id: uuid(),
-      tool: tool === "lasso" ? "pen" : tool,
-      color: tool === "eraser" ? "#000" : color,
-      size: strokeSize,
-      opacity: 1,
-      points: [pos],
-    };
-    drawCanvasRef.current?.setPointerCapture(e.pointerId);
-  }, [tool, color, size, getPos]);
+  const onPointerDown = useCallback(
+    (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      e.preventDefault();
+      isDrawingRef.current = true;
+      const pos = getPos(e);
+      const strokeSize =
+        tool === "highlighter"
+          ? size * 4
+          : tool === "eraser"
+          ? size * 6
+          : size * (0.5 + pos.pressure * 1.5);
+      currentStrokeRef.current = {
+        id: uuid(),
+        tool: tool === "lasso" ? "pen" : tool,
+        color: tool === "eraser" ? "#000" : color,
+        size: strokeSize,
+        opacity: 1,
+        points: [pos],
+      };
+      drawCanvasRef.current?.setPointerCapture(e.pointerId);
+    },
+    [tool, color, size, getPos]
+  );
 
-  const onPointerMove = useCallback((e: PointerEvent) => {
-    if (!isDrawingRef.current || !currentStrokeRef.current) return;
-    e.preventDefault();
-    const pos = getPos(e);
-    currentStrokeRef.current.points.push(pos);
-    const canvas = drawCanvasRef.current!;
-    const ctx = canvas.getContext("2d")!;
-    const pts = currentStrokeRef.current.points;
-    if (pts.length >= 2) {
-      ctx.save();
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      if (currentStrokeRef.current.tool === "highlighter") {
-        ctx.globalCompositeOperation = "multiply";
-        ctx.globalAlpha = 0.45;
-      } else if (currentStrokeRef.current.tool === "eraser") {
-        ctx.globalCompositeOperation = "destination-out";
-        ctx.globalAlpha = 1;
-      } else {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = 1;
+  const onPointerMove = useCallback(
+    (e: PointerEvent) => {
+      if (!isDrawingRef.current || !currentStrokeRef.current) return;
+      e.preventDefault();
+      const pos = getPos(e);
+      currentStrokeRef.current.points.push(pos);
+      const canvas = drawCanvasRef.current!;
+      const ctx = canvas.getContext("2d")!;
+      const pts = currentStrokeRef.current.points;
+      if (pts.length >= 2) {
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        if (currentStrokeRef.current.tool === "highlighter") {
+          ctx.globalCompositeOperation = "multiply";
+          ctx.globalAlpha = 0.45;
+        } else if (currentStrokeRef.current.tool === "eraser") {
+          ctx.globalCompositeOperation = "destination-out";
+          ctx.globalAlpha = 1;
+        } else {
+          ctx.globalCompositeOperation = "source-over";
+          ctx.globalAlpha = 1;
+        }
+        ctx.strokeStyle = currentStrokeRef.current.color;
+        ctx.lineWidth = currentStrokeRef.current.size;
+        ctx.beginPath();
+        ctx.moveTo(pts[pts.length - 2].x, pts[pts.length - 2].y);
+        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+        ctx.stroke();
+        ctx.restore();
       }
-      ctx.strokeStyle = currentStrokeRef.current.color;
-      ctx.lineWidth = currentStrokeRef.current.size;
-      ctx.beginPath();
-      ctx.moveTo(pts[pts.length - 2].x, pts[pts.length - 2].y);
-      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-      ctx.stroke();
-      ctx.restore();
-    }
-  }, [getPos]);
+    },
+    [getPos]
+  );
 
   const onPointerUp = useCallback(() => {
     if (!isDrawingRef.current || !currentStrokeRef.current) return;
@@ -223,12 +258,11 @@ export default function AnnotatedPDFCanvas({
     undoStackRef.current.push(newStrokes);
     redoStackRef.current = [];
 
-    // Clean redraw
     const canvas = drawCanvasRef.current!;
     const ctx = canvas.getContext("2d")!;
     redrawAll(ctx, newStrokes, canvas.clientWidth, canvas.clientHeight);
-    onStrokesChange(newStrokes);
-  }, [onStrokesChange]);
+    onStrokesChange(pageNumber, newStrokes);
+  }, [pageNumber, onStrokesChange]);
 
   useEffect(() => {
     const canvas = drawCanvasRef.current;
@@ -253,8 +287,13 @@ export default function AnnotatedPDFCanvas({
     const prev = stack[stack.length - 1];
     strokesRef.current = prev;
     const canvas = drawCanvasRef.current!;
-    redrawAll(canvas.getContext("2d")!, prev, canvas.clientWidth, canvas.clientHeight);
-    onStrokesChange(prev);
+    redrawAll(
+      canvas.getContext("2d")!,
+      prev,
+      canvas.clientWidth,
+      canvas.clientHeight
+    );
+    onStrokesChange(pageNumber, prev);
   }
 
   async function exportAnnotatedPDF() {
@@ -278,27 +317,59 @@ export default function AnnotatedPDFCanvas({
     }
   }
 
-  async function goToPage(p: number) {
-    if (!pdfDocRef.current || p < 1 || p > numPages) return;
-    setCurrentPage(p);
-  }
-
   return (
     <div className={styles.wrapper}>
       {/* Controls Bar */}
       <div className={styles.controls}>
         <button className="btn-icon" onClick={undo} title="Undo">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <path d="M3 7v6h6" />
+            <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+          </svg>
         </button>
         <div className={styles.paginator}>
-          <button className="btn-icon" onClick={() => goToPage(currentPage - 1)} disabled={currentPage <= 1}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+          <button
+            className="btn-icon"
+            onClick={() => onPageChange(pageNumber - 1)}
+            disabled={pageNumber <= 1}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
           </button>
           <span className={styles.pageInfo}>
-            {loading ? "Loading…" : `${currentPage} / ${numPages}`}
+            {loading ? "Loading…" : `Slide ${pageNumber} / ${numPages}`}
           </span>
-          <button className="btn-icon" onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= numPages}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg>
+          <button
+            className="btn-icon"
+            onClick={() => onPageChange(pageNumber + 1)}
+            disabled={pageNumber >= numPages}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
           </button>
         </div>
         <button
@@ -316,12 +387,20 @@ export default function AnnotatedPDFCanvas({
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-ghost"
-            style={{ fontSize: "var(--text-xs)", padding: "6px 12px", color: "var(--success)" }}
+            style={{
+              fontSize: "var(--text-xs)",
+              padding: "6px 12px",
+              color: "var(--success)",
+            }}
           >
             ↓ Download
           </a>
         )}
-        <button className="btn btn-ghost" onClick={onClose} style={{ marginLeft: "auto", fontSize: "var(--text-xs)" }}>
+        <button
+          className="btn btn-ghost"
+          onClick={onClose}
+          style={{ marginLeft: "auto", fontSize: "var(--text-xs)" }}
+        >
           Close PDF
         </button>
       </div>

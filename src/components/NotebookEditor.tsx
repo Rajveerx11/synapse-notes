@@ -104,8 +104,11 @@ export default function NotebookEditor({
     }
   }, [serverNotebook.id, serverNotebook.title]);
 
+  // Extract strokes specifically for current page
   const currentPageData = pages.find(p => p.page_number === currentPage);
-  const currentStrokes: Stroke[] = JSON.parse(currentPageData?.strokes_json || "[]");
+  const currentStrokes: Stroke[] = currentPageData?.strokes_json
+    ? JSON.parse(currentPageData.strokes_json)
+    : [];
 
   const persistLocally = useCallback(
     (updatedPages: Page[], currentTitle?: string) => {
@@ -126,12 +129,13 @@ export default function NotebookEditor({
     [notebook.id, notebook.title, notebook.subject]
   );
 
+  // Save strokes scoped strictly to target pageNo
   const handleStrokeSave = useCallback(
-    (strokes: Stroke[]) => {
+    (pageNo: number, strokes: Stroke[]) => {
       setSaveStatus("saving");
 
       setPages(prev => {
-        const idx = prev.findIndex(p => p.page_number === currentPage);
+        const idx = prev.findIndex(p => p.page_number === pageNo);
         let updated: Page[];
         if (idx >= 0) {
           updated = [...prev];
@@ -140,13 +144,13 @@ export default function NotebookEditor({
           updated = [
             ...prev,
             {
-              id: `p-${currentPage}`,
+              id: `p-${pageNo}`,
               notebook_id: notebook.id,
-              page_number: currentPage,
+              page_number: pageNo,
               strokes_json: JSON.stringify(strokes),
               text_content: "",
               pdf_url: pdfUrl,
-              pdf_page: 1,
+              pdf_page: pageNo,
               updated_at: Math.floor(Date.now() / 1000),
             },
           ];
@@ -162,7 +166,7 @@ export default function NotebookEditor({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              page_number: currentPage,
+              page_number: pageNo,
               strokes_json: JSON.stringify(strokes),
             }),
           });
@@ -172,7 +176,7 @@ export default function NotebookEditor({
         setSaveStatus("saved");
       }, 1000);
     },
-    [notebook.id, currentPage, pdfUrl, persistLocally]
+    [notebook.id, pdfUrl, persistLocally]
   );
 
   async function handleTitleSave() {
@@ -454,16 +458,20 @@ export default function NotebookEditor({
         <main className={styles.canvasArea}>
           {showPDF && pdfUrl ? (
             <AnnotatedPDFCanvas
+              key={`pdf-page-${currentPage}`}
               url={pdfUrl}
               tool={tool}
               color={color}
               size={size}
+              pageNumber={currentPage}
+              onPageChange={setCurrentPage}
               initialStrokes={currentStrokes}
               onStrokesChange={handleStrokeSave}
               onClose={() => setShowPDF(false)}
             />
           ) : (
             <Canvas
+              key={`canvas-page-${currentPage}`}
               notebookId={notebook.id}
               pageNumber={currentPage}
               tool={tool}

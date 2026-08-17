@@ -10,7 +10,7 @@ interface Props {
   tool: "pen" | "highlighter" | "eraser" | "lasso";
   color: string;
   size: number;
-  onStrokesChange: (strokes: Stroke[]) => void;
+  onStrokesChange: (pageNumber: number, strokes: Stroke[]) => void;
   initialStrokes: Stroke[];
 }
 
@@ -28,55 +28,12 @@ export default function Canvas({
   const currentStrokeRef = useRef<Stroke | null>(null);
   const isDrawingRef = useRef(false);
   const undoStackRef = useRef<Stroke[][]>([initialStrokes]);
-  const [canUndo, setCanUndo] = useState(false);
+  const [canUndo, setCanUndo] = useState(initialStrokes.length > 0);
   const [canRedo, setCanRedo] = useState(false);
   const redoStackRef = useRef<Stroke[][]>([]);
 
-  // Resize observer
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
-
-    const ro = new ResizeObserver(() => {
-      const dpr = window.devicePixelRatio || 1;
-      const { width, height } = container.getBoundingClientRect();
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      const ctx = canvas.getContext("2d")!;
-      ctx.scale(dpr, dpr);
-      redrawAll(ctx, strokesRef.current);
-    });
-
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, []);
-
-  // Redraw when page changes or initialStrokes changes
-  useEffect(() => {
-    strokesRef.current = initialStrokes;
-    undoStackRef.current = [initialStrokes];
-    redoStackRef.current = [];
-    setCanUndo(false);
-    setCanRedo(false);
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d")!;
-    redrawAll(ctx, initialStrokes);
-  }, [pageNumber, initialStrokes]);
-
-  function redrawAll(ctx: CanvasRenderingContext2D, strokes: Stroke[]) {
-    const canvas = ctx.canvas;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    for (const stroke of strokes) {
-      drawStroke(ctx, stroke);
-    }
-  }
-
   function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
-    if (stroke.points.length < 2) return;
+    if (!stroke || !stroke.points || stroke.points.length < 2) return;
 
     ctx.save();
     ctx.lineCap = "round";
@@ -90,7 +47,7 @@ export default function Canvas({
       ctx.globalAlpha = 1;
     } else {
       ctx.globalCompositeOperation = "source-over";
-      ctx.globalAlpha = stroke.opacity;
+      ctx.globalAlpha = stroke.opacity || 1;
     }
 
     ctx.strokeStyle = stroke.color;
@@ -98,7 +55,6 @@ export default function Canvas({
     ctx.beginPath();
     ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
 
-    // Smooth curve through points
     for (let i = 1; i < stroke.points.length - 1; i++) {
       const mx = (stroke.points[i].x + stroke.points[i + 1].x) / 2;
       const my = (stroke.points[i].y + stroke.points[i + 1].y) / 2;
@@ -110,6 +66,37 @@ export default function Canvas({
     ctx.stroke();
     ctx.restore();
   }
+
+  function redrawAll(ctx: CanvasRenderingContext2D, strokes: Stroke[]) {
+    const canvas = ctx.canvas;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (const stroke of strokes) {
+      drawStroke(ctx, stroke);
+    }
+  }
+
+  // Setup canvas resolution on mount & container resize
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+
+    const ro = new ResizeObserver(() => {
+      const dpr = window.devicePixelRatio || 1;
+      const { width, height } = container.getBoundingClientRect();
+      if (width === 0 || height === 0) return;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      const ctx = canvas.getContext("2d")!;
+      ctx.scale(dpr, dpr);
+      redrawAll(ctx, strokesRef.current);
+    });
+
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, []);
 
   const getPos = useCallback((e: PointerEvent) => {
     const canvas = canvasRef.current!;
@@ -123,17 +110,17 @@ export default function Canvas({
 
   const onPointerDown = useCallback(
     (e: PointerEvent) => {
-      // Palm rejection: only accept pen or mouse (not finger when pen is active)
       if (e.pointerType === "touch") return;
 
       e.preventDefault();
       isDrawingRef.current = true;
       const pos = getPos(e);
-      const strokeSize = tool === "highlighter"
-        ? size * 4
-        : tool === "eraser"
-        ? size * 6
-        : size * (0.5 + pos.pressure * 1.5);
+      const strokeSize =
+        tool === "highlighter"
+          ? size * 4
+          : tool === "eraser"
+          ? size * 6
+          : size * (0.5 + pos.pressure * 1.5);
 
       currentStrokeRef.current = {
         id: uuid(),
@@ -157,7 +144,6 @@ export default function Canvas({
 
       const pos = getPos(e);
 
-      // Pressure-sensitive size update for pen
       if (tool === "pen" && currentStrokeRef.current.tool === "pen") {
         const dynamicSize = size * (0.5 + pos.pressure * 1.5);
         currentStrokeRef.current.size = dynamicSize;
@@ -169,7 +155,6 @@ export default function Canvas({
       const ctx = canvas.getContext("2d")!;
       const pts = currentStrokeRef.current.points;
 
-      // Draw only the last segment incrementally for performance
       if (pts.length >= 2) {
         ctx.save();
         ctx.lineCap = "round";
@@ -211,27 +196,23 @@ export default function Canvas({
 
       if (stroke.points.length < 2) return;
 
-      // Save stroke
       const newStrokes = [...strokesRef.current, stroke];
       strokesRef.current = newStrokes;
 
-      // Undo stack
       undoStackRef.current.push(newStrokes);
       redoStackRef.current = [];
       setCanUndo(true);
       setCanRedo(false);
 
-      // Redraw cleanly (fix highlighter artifacts)
       const canvas = canvasRef.current!;
       const ctx = canvas.getContext("2d")!;
       redrawAll(ctx, newStrokes);
 
-      onStrokesChange(newStrokes);
+      onStrokesChange(pageNumber, newStrokes);
     },
-    [onStrokesChange]
+    [pageNumber, onStrokesChange]
   );
 
-  // Attach pointer events
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -249,7 +230,6 @@ export default function Canvas({
     };
   }, [onPointerDown, onPointerMove, onPointerUp]);
 
-  // Keyboard shortcuts: Ctrl+Z / Ctrl+Y
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.ctrlKey && e.key === "z") undo();
@@ -270,7 +250,7 @@ export default function Canvas({
     setCanRedo(true);
     const canvas = canvasRef.current!;
     redrawAll(canvas.getContext("2d")!, prev);
-    onStrokesChange(prev);
+    onStrokesChange(pageNumber, prev);
   }
 
   function redo() {
@@ -283,7 +263,7 @@ export default function Canvas({
     setCanRedo(redoStack.length > 0);
     const canvas = canvasRef.current!;
     redrawAll(canvas.getContext("2d")!, next);
-    onStrokesChange(next);
+    onStrokesChange(pageNumber, next);
   }
 
   function clearPage() {
@@ -291,12 +271,12 @@ export default function Canvas({
     undoStackRef.current.push(newStrokes);
     redoStackRef.current = [];
     strokesRef.current = newStrokes;
-    setCanUndo(true);
-    setCanRedo(false);
+    setCanUndo(false);
+    setCanRedo(true);
     const canvas = canvasRef.current!;
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    onStrokesChange(newStrokes);
+    onStrokesChange(pageNumber, newStrokes);
   }
 
   return (
@@ -307,7 +287,6 @@ export default function Canvas({
         style={{ cursor: tool === "eraser" ? "cell" : "crosshair" }}
         id="main-canvas"
       />
-      {/* Undo / Redo / Clear controls */}
       <div className={styles.actions}>
         <button
           className="btn-icon"
