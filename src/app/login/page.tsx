@@ -16,25 +16,42 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
 
-    const username = usernameRef.current!.value.trim();
-    const password = passwordRef.current!.value;
+    const username = usernameRef.current?.value.trim() || "";
+    const password = passwordRef.current?.value || "";
 
-    const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-
-    const json = await res.json();
-    setLoading(false);
-
-    if (!res.ok) {
-      setError(json.error || "Something went wrong");
+    if (!username || !password) {
+      setError("Please fill in all fields");
+      setLoading(false);
       return;
     }
 
-    router.replace("/");
+    try {
+      const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+
+      let json: { ok?: boolean; error?: string } = {};
+      try {
+        json = await res.json();
+      } catch {
+        json = { error: `Server error (${res.status})` };
+      }
+
+      setLoading(false);
+
+      if (!res.ok) {
+        setError(json.error || "Authentication failed. Please try again.");
+        return;
+      }
+
+      router.replace("/");
+    } catch (err: unknown) {
+      setLoading(false);
+      setError(err instanceof Error ? err.message : "Network error. Please try again.");
+    }
   }
 
   return (
