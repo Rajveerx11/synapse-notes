@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
 import { PDFDocument, rgb, LineCapStyle } from "pdf-lib";
-import { put } from "@vercel/blob";
-import { v4 as uuid } from "uuid";
+import { uploadFileToStorage } from "@/lib/storage";
 
 interface StrokePoint {
   x: number;
@@ -133,37 +132,16 @@ export async function POST(req: NextRequest) {
     }
 
     const annotatedBytes = await pdfDoc.save();
+    const buffer = Buffer.from(annotatedBytes);
 
-    // 1. If Vercel Blob is configured
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
-      const blob = await put(
-        `exports/${session.userId}/${finalFilename}`,
-        Buffer.from(annotatedBytes),
-        { access: "public", contentType: "application/pdf" }
-      );
+    const { url: exportedUrl, provider } = await uploadFileToStorage(
+      session.userId,
+      finalFilename,
+      buffer,
+      "application/pdf"
+    );
 
-      if (replaceOriginal && notebookId) {
-        if (process.env.DATABASE_URL) {
-          const { Pool } = await import("pg");
-          const pool = new Pool({
-            connectionString: process.env.DATABASE_URL,
-            ssl: { rejectUnauthorized: false },
-          });
-          const client = await pool.connect();
-          try {
-            await client.query(`UPDATE pages SET pdf_url = $1 WHERE notebook_id = $2`, [blob.url, notebookId]);
-          } finally {
-            client.release();
-            await pool.end();
-          }
-        }
-      }
-
-      return NextResponse.json({ data: { url: blob.url, filename: finalFilename, replaced: !!replaceOriginal } });
-    }
-
-    // 2. Neon Database Storage
-    if (process.env.DATABASE_URL) {
+    if (replaceOriginal && notebookId && process.env.DATABASE_URL) {
       const { Pool } = await import("pg");
       const pool = new Pool({
         connectionString: process.env.DATABASE_URL,
@@ -171,48 +149,19 @@ export async function POST(req: NextRequest) {
       });
       const client = await pool.connect();
       try {
-        const exportId = uuid();
-        const base64 = Buffer.from(annotatedBytes).toString("base64");
-        await client.query(`
-          CREATE TABLE IF NOT EXISTS pdf_files (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            filename TEXT NOT NULL,
-            content_base64 TEXT NOT NULL,
-            created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
-          )
-        `);
-        await client.query(
-          `INSERT INTO pdf_files (id, user_id, filename, content_base64) VALUES ($1, $2, $3, $4)`,
-          [exportId, session.userId, finalFilename, base64]
-        );
-
-        const newPdfUrl = `/api/pdf/${exportId}`;
-
-        if (replaceOriginal && notebookId) {
-          await client.query(`UPDATE pages SET pdf_url = $1 WHERE notebook_id = $2`, [newPdfUrl, notebookId]);
-        }
-
-        return NextResponse.json({
-          data: {
-            url: newPdfUrl,
-            filename: finalFilename,
-            replaced: !!replaceOriginal,
-          },
-        });
+        await client.query(`UPDATE pages SET pdf_url = $1 WHERE notebook_id = $2`, [exportedUrl, notebookId]);
       } finally {
         client.release();
         await pool.end();
       }
     }
 
-    // 3. Fallback data URI
-    const dataUri = `data:application/pdf;base64,${Buffer.from(annotatedBytes).toString("base64")}`;
     return NextResponse.json({
       data: {
-        url: dataUri,
+        url: exportedUrl,
         filename: finalFilename,
-        replaced: false,
+        replaced: !!replaceOriginal,
+        provider,
       },
     });
   } catch (err: unknown) {

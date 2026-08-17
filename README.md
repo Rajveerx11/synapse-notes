@@ -10,7 +10,7 @@
 
 **An AI-native digital notebook tailored for tablet handwriting (Samsung Tab S-Pen), PDF slide markup, and two-way integration with AI agents (Claude Code, Codex, Antigravity) via the Model Context Protocol (MCP).**
 
-[Live Application](https://synapse-notes-iota.vercel.app) • [Architecture Guide](docs/architecture.md) • [MCP Server Setup](docs/MCP_SETUP.md) • [API Reference](docs/api-reference.md) • [Tablet Guide](docs/tablet-guide.md)
+[Live Application](https://synapse-notes-iota.vercel.app) • [Architecture Guide](docs/architecture.md) • [Cloudflare R2 Storage Guide](docs/cloud-storage-guide.md) • [MCP Server Setup](docs/MCP_SETUP.md) • [API Reference](docs/api-reference.md) • [Tablet Guide](docs/tablet-guide.md)
 
 </div>
 

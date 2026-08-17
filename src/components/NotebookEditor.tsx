@@ -16,6 +16,7 @@ import {
   exportToPowerPoint,
   exportToExcel,
 } from "@/lib/exportUtils";
+import { quantizeStrokes } from "@/lib/compressionUtils";
 import styles from "./NotebookEditor.module.css";
 
 interface Props {
@@ -155,8 +156,9 @@ export default function NotebookEditor({
 
   // Save strokes scoped strictly to target pageNo
   const handleStrokeSave = useCallback(
-    (pageNo: number, strokes: Stroke[]) => {
+    (pageNo: number, rawStrokes: Stroke[]) => {
       setSaveStatus("saving");
+      const strokes = quantizeStrokes(rawStrokes);
 
       setPages(prev => {
         const idx = prev.findIndex(p => p.page_number === pageNo);
