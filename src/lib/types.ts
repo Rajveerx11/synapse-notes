@@ -50,7 +50,22 @@ export interface AiCard {
   next_review_at?: number;
 }
 
+export interface PdfAnnotation {
+  id: string;
+  notebook_id: string;
+  page_number: number;
+  type: "highlight" | "underline" | "sticky";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+  text?: string;
+  created_at: number;
+}
+
 export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
 }
+

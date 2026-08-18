@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
     const {
       pdfUrl,
       strokes,
+      annotations,
       canvasWidth,
       canvasHeight,
       replaceOriginal,
@@ -42,6 +43,15 @@ export async function POST(req: NextRequest) {
     } = (await req.json()) as {
       pdfUrl: string;
       strokes: Stroke[];
+      annotations?: Array<{
+        type: "highlight" | "underline" | "sticky";
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        color: string;
+        text?: string;
+      }>;
       canvasWidth: number;
       canvasHeight: number;
       replaceOriginal?: boolean;
@@ -135,6 +145,38 @@ export async function POST(req: NextRequest) {
           color: rgb(r, g, b),
           opacity,
           lineCap: LineCapStyle.Round,
+        });
+      }
+    }
+
+    // Burn structured annotations (highlights, underlines, sticky notes) into PDF
+    for (const ann of annotations || []) {
+      const [r, g, b] = hexToRgb(ann.color || "#fde047");
+      if (ann.type === "highlight") {
+        page.drawRectangle({
+          x: ann.x * scaleX,
+          y: pageHeight - (ann.y + ann.height) * scaleY,
+          width: ann.width * scaleX,
+          height: ann.height * scaleY,
+          color: rgb(r, g, b),
+          opacity: 0.35,
+        });
+      } else if (ann.type === "underline") {
+        page.drawLine({
+          start: { x: ann.x * scaleX, y: pageHeight - ann.y * scaleY },
+          end: { x: (ann.x + ann.width) * scaleX, y: pageHeight - ann.y * scaleY },
+          thickness: 2.5 * Math.min(scaleX, scaleY),
+          color: rgb(r, g, b),
+          opacity: 0.9,
+        });
+      } else if (ann.type === "sticky") {
+        page.drawRectangle({
+          x: ann.x * scaleX,
+          y: pageHeight - (ann.y + ann.height) * scaleY,
+          width: ann.width * scaleX,
+          height: ann.height * scaleY,
+          color: rgb(r, g, b),
+          opacity: 0.85,
         });
       }
     }

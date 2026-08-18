@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { User, Notebook, Page, AiCard } from "./types";
+import { User, Notebook, Page, AiCard, PdfAnnotation } from "./types";
 import { v4 as uuid } from "uuid";
 import fs from "fs";
 import path from "path";
@@ -14,6 +14,7 @@ interface FallbackData {
   notebooks: Notebook[];
   pages: Page[];
   ai_cards: AiCard[];
+  pdf_annotations?: PdfAnnotation[];
 }
 
 function loadFallbackData(): FallbackData {
@@ -25,7 +26,7 @@ function loadFallbackData(): FallbackData {
   } catch (e) {
     console.warn("Fallback DB read error:", e);
   }
-  return { users: [], notebooks: [], pages: [], ai_cards: [] };
+  return { users: [], notebooks: [], pages: [], ai_cards: [], pdf_annotations: [] };
 }
 
 function saveFallbackData(data: FallbackData): void {
@@ -121,6 +122,23 @@ export async function bootstrapSchema(): Promise<void> {
     } catch (e) {
       // Columns may already exist
     }
+
+    await queryDb(`
+      CREATE TABLE IF NOT EXISTS pdf_annotations (
+        id TEXT PRIMARY KEY,
+        notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+        page_number INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        x REAL NOT NULL,
+        y REAL NOT NULL,
+        width REAL NOT NULL,
+        height REAL NOT NULL,
+        color TEXT NOT NULL,
+        text TEXT DEFAULT '',
+        created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+      )
+    `);
+
     schemaInitialized = true;
   } catch (e) {
     console.warn("Schema bootstrap warning:", e);
@@ -710,5 +728,95 @@ export const dbService = {
       });
 
     return { pages: pageResults, cards: cardResults };
+  },
+
+  async createPdfAnnotation(annotation: Omit<PdfAnnotation, "id" | "created_at">): Promise<PdfAnnotation> {
+    const id = uuid();
+    const now = Math.floor(Date.now() / 1000);
+    const full: PdfAnnotation = {
+      ...annotation,
+      id,
+      created_at: now,
+    };
+
+    if (process.env.DATABASE_URL) {
+      try {
+        await queryDb(
+          `INSERT INTO pdf_annotations (id, notebook_id, page_number, type, x, y, width, height, color, text, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          [
+            id,
+            full.notebook_id,
+            full.page_number,
+            full.type,
+            full.x,
+            full.y,
+            full.width,
+            full.height,
+            full.color,
+            full.text || "",
+            now,
+          ]
+        );
+        return full;
+      } catch (e) {
+        console.warn("Postgres createPdfAnnotation error, using fallback:", e);
+      }
+    }
+
+    const data = loadFallbackData();
+    if (!data.pdf_annotations) data.pdf_annotations = [];
+    data.pdf_annotations.push(full);
+    saveFallbackData(data);
+    return full;
+  },
+
+  async listPdfAnnotations(notebookId: string, pageNumber?: number): Promise<PdfAnnotation[]> {
+    if (process.env.DATABASE_URL) {
+      try {
+        if (pageNumber) {
+          const rows = await queryDb<PdfAnnotation>(
+            `SELECT * FROM pdf_annotations WHERE notebook_id = $1 AND page_number = $2 ORDER BY created_at ASC`,
+            [notebookId, pageNumber]
+          );
+          return rows;
+        } else {
+          const rows = await queryDb<PdfAnnotation>(
+            `SELECT * FROM pdf_annotations WHERE notebook_id = $1 ORDER BY page_number ASC, created_at ASC`,
+            [notebookId]
+          );
+          return rows;
+        }
+      } catch (e) {
+        console.warn("Postgres listPdfAnnotations error, using fallback:", e);
+      }
+    }
+
+    const data = loadFallbackData();
+    const list = data.pdf_annotations || [];
+    return list
+      .filter((a) => a.notebook_id === notebookId && (!pageNumber || a.page_number === pageNumber))
+      .sort((a, b) => a.created_at - b.created_at);
+  },
+
+  async deletePdfAnnotation(id: string): Promise<boolean> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await queryDb(`DELETE FROM pdf_annotations WHERE id = $1`, [id]);
+        return true;
+      } catch (e) {
+        console.warn("Postgres deletePdfAnnotation error, using fallback:", e);
+      }
+    }
+
+    const data = loadFallbackData();
+    if (!data.pdf_annotations) return false;
+    const idx = data.pdf_annotations.findIndex((a) => a.id === id);
+    if (idx >= 0) {
+      data.pdf_annotations.splice(idx, 1);
+      saveFallbackData(data);
+      return true;
+    }
+    return false;
   },
 };

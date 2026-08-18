@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Stroke } from "@/lib/types";
+import { Stroke, PdfAnnotation } from "@/lib/types";
 import { v4 as uuid } from "uuid";
 import PDFExportModal from "./PDFExportModal";
 import styles from "./AnnotatedPDFCanvas.module.css";
@@ -44,6 +44,14 @@ export default function AnnotatedPDFCanvas({
   const [isExporting, setIsExporting] = useState(false);
   const [exportUrl, setExportUrl] = useState<string | null>(null);
 
+  // Structured Annotation Layer State
+  const [annMode, setAnnMode] = useState<"ink" | "highlight" | "underline" | "sticky">("ink");
+  const [annotations, setAnnotations] = useState<PdfAnnotation[]>([]);
+  const [allAnnotations, setAllAnnotations] = useState<PdfAnnotation[]>([]);
+  const [showDrawer, setShowDrawer] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const currentRectRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pdfDocRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,6 +86,25 @@ export default function AnnotatedPDFCanvas({
     };
   }, [url]);
 
+  // Load annotations from DB for this notebook
+  const loadAnnotations = useCallback(async () => {
+    if (!notebookId) return;
+    try {
+      const res = await fetch(`/api/notebooks/${notebookId}/annotations`);
+      const json = await res.json();
+      if (res.ok && json.data) {
+        setAllAnnotations(json.data);
+        setAnnotations(json.data.filter((a: PdfAnnotation) => a.page_number === pageNumber));
+      }
+    } catch (e) {
+      console.warn("Failed to load PDF annotations:", e);
+    }
+  }, [notebookId, pageNumber]);
+
+  useEffect(() => {
+    loadAnnotations();
+  }, [loadAnnotations]);
+
   // Render PDF slide and restore strokes for this specific page
   useEffect(() => {
     if (!pdfDocRef.current || loading) return;
@@ -101,45 +128,37 @@ export default function AnnotatedPDFCanvas({
       } catch {}
     }
 
-    const safePageNum = Math.max(1, Math.min(pageNum, pdf.numPages || 1));
-    const page = await pdf.getPage(safePageNum);
-    const containerWidth = container.clientWidth || 800;
-    const containerHeight = container.clientHeight || 600;
-    const viewport = page.getViewport({ scale: 1 });
-    const scale =
-      Math.min(
-        containerWidth / viewport.width,
-        containerHeight / viewport.height
-      ) * 0.95;
-    const scaledViewport = page.getViewport({ scale: scale || 1 });
-
-    const dpr = window.devicePixelRatio || 1;
-    const w = scaledViewport.width;
-    const h = scaledViewport.height;
-
-    // Size both canvases identically
-    for (const canvas of [pdfCanvas, drawCanvas]) {
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-    }
-
-    const pdfCtx = pdfCanvas.getContext("2d")!;
-    pdfCtx.scale(dpr, dpr);
-    const task = page.render({
-      canvasContext: pdfCtx,
-      viewport: scaledViewport,
-    });
-    renderTaskRef.current = task;
     try {
-      await task.promise;
-    } catch {}
+      const page = await pdf.getPage(pageNum);
+      const containerW = container.clientWidth - 48;
+      const unscaledViewport = page.getViewport({ scale: 1 });
+      const scale = Math.min(containerW / unscaledViewport.width, 1.8);
+      const viewport = page.getViewport({ scale });
 
-    // Restore strokes strictly for this page
-    const drawCtx = drawCanvas.getContext("2d")!;
-    drawCtx.scale(dpr, dpr);
-    redrawAll(drawCtx, strokesRef.current, w, h);
+      const dpr = window.devicePixelRatio || 1;
+      pdfCanvas.width = viewport.width * dpr;
+      pdfCanvas.height = viewport.height * dpr;
+      pdfCanvas.style.width = `${viewport.width}px`;
+      pdfCanvas.style.height = `${viewport.height}px`;
+
+      drawCanvas.width = viewport.width * dpr;
+      drawCanvas.height = viewport.height * dpr;
+      drawCanvas.style.width = `${viewport.width}px`;
+      drawCanvas.style.height = `${viewport.height}px`;
+
+      const pdfCtx = pdfCanvas.getContext("2d")!;
+      pdfCtx.scale(dpr, dpr);
+
+      const drawCtx = drawCanvas.getContext("2d")!;
+      drawCtx.scale(dpr, dpr);
+
+      renderTaskRef.current = page.render({
+        canvasContext: pdfCtx,
+        viewport,
+      });
+      await renderTaskRef.current.promise;
+      redrawAll(drawCtx, strokesRef.current, viewport.width, viewport.height);
+    } catch {}
   }
 
   function redrawAll(
@@ -200,13 +219,48 @@ export default function AnnotatedPDFCanvas({
     };
   }, []);
 
+  // Pointer event handlers supporting both ink & structured annotations
   const onPointerDown = useCallback(
     (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
       e.preventDefault();
-      isDrawingRef.current = true;
       const pos = getPos(e);
-      // Store base size; pressure scaling happens per-segment in drawStroke
+
+      if (annMode === "sticky") {
+        // Drop sticky note
+        if (!notebookId) return;
+        const newSticky: PdfAnnotation = {
+          id: uuid(),
+          notebook_id: notebookId,
+          page_number: pageNumber,
+          type: "sticky",
+          x: pos.x,
+          y: pos.y,
+          width: 180,
+          height: 100,
+          color: "#fef08a",
+          text: "New note…",
+          created_at: Math.floor(Date.now() / 1000),
+        };
+        setAnnotations(prev => [...prev, newSticky]);
+        setAllAnnotations(prev => [...prev, newSticky]);
+        fetch(`/api/notebooks/${notebookId}/annotations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newSticky),
+        }).catch(err => console.warn("Failed to persist sticky note:", err));
+        setAnnMode("ink");
+        return;
+      }
+
+      if (annMode === "highlight" || annMode === "underline") {
+        dragStartRef.current = { x: pos.x, y: pos.y };
+        currentRectRef.current = { x: pos.x, y: pos.y, width: 0, height: 0 };
+        return;
+      }
+
+      // Ink drawing mode
+      isDrawingRef.current = true;
       const baseSize =
         tool === "highlighter" ? size * 4 :
         tool === "eraser"      ? size * 6 :
@@ -221,14 +275,28 @@ export default function AnnotatedPDFCanvas({
       };
       drawCanvasRef.current?.setPointerCapture(e.pointerId);
     },
-    [tool, color, size, getPos]
+    [annMode, tool, color, size, getPos, notebookId, pageNumber]
   );
 
   const onPointerMove = useCallback(
     (e: PointerEvent) => {
+      const pos = getPos(e);
+
+      if ((annMode === "highlight" || annMode === "underline") && dragStartRef.current) {
+        const start = dragStartRef.current;
+        const width = pos.x - start.x;
+        const height = annMode === "underline" ? 4 : pos.y - start.y;
+        currentRectRef.current = {
+          x: width < 0 ? pos.x : start.x,
+          y: height < 0 ? pos.y : start.y,
+          width: Math.abs(width),
+          height: Math.max(4, Math.abs(height)),
+        };
+        return;
+      }
+
       if (!isDrawingRef.current || !currentStrokeRef.current) return;
       e.preventDefault();
-      const pos = getPos(e);
       currentStrokeRef.current.points.push(pos);
       const canvas = drawCanvasRef.current!;
       const ctx = canvas.getContext("2d")!;
@@ -260,10 +328,40 @@ export default function AnnotatedPDFCanvas({
         ctx.restore();
       }
     },
-    [getPos]
+    [annMode, getPos]
   );
 
   const onPointerUp = useCallback(() => {
+    if ((annMode === "highlight" || annMode === "underline") && dragStartRef.current && currentRectRef.current) {
+      const rect = currentRectRef.current;
+      dragStartRef.current = null;
+      currentRectRef.current = null;
+
+      if (rect.width > 5 && notebookId) {
+        const newAnn: PdfAnnotation = {
+          id: uuid(),
+          notebook_id: notebookId,
+          page_number: pageNumber,
+          type: annMode,
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+          color: annMode === "highlight" ? "#fde047" : "#2d6ef6",
+          text: annMode === "highlight" ? "Highlight" : "Underline",
+          created_at: Math.floor(Date.now() / 1000),
+        };
+        setAnnotations(prev => [...prev, newAnn]);
+        setAllAnnotations(prev => [...prev, newAnn]);
+        fetch(`/api/notebooks/${notebookId}/annotations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newAnn),
+        }).catch(err => console.warn("Failed to persist annotation:", err));
+      }
+      return;
+    }
+
     if (!isDrawingRef.current || !currentStrokeRef.current) return;
     isDrawingRef.current = false;
     const stroke = currentStrokeRef.current;
@@ -279,7 +377,7 @@ export default function AnnotatedPDFCanvas({
     const ctx = canvas.getContext("2d")!;
     redrawAll(ctx, newStrokes, canvas.clientWidth, canvas.clientHeight);
     onStrokesChange(pageNumber, newStrokes);
-  }, [pageNumber, onStrokesChange]);
+  }, [annMode, notebookId, pageNumber, onStrokesChange]);
 
   useEffect(() => {
     const canvas = drawCanvasRef.current;
@@ -313,6 +411,18 @@ export default function AnnotatedPDFCanvas({
     onStrokesChange(pageNumber, prev);
   }
 
+  const deleteAnnotation = async (id: string) => {
+    setAnnotations(prev => prev.filter(a => a.id !== id));
+    setAllAnnotations(prev => prev.filter(a => a.id !== id));
+    try {
+      await fetch(`/api/notebooks/${notebookId}/annotations?annotationId=${id}`, {
+        method: "DELETE",
+      });
+    } catch (e) {
+      console.warn("Failed to delete annotation:", e);
+    }
+  };
+
   // ── Handle Modal Export ───────────────────
   async function handleModalExport(options: { filename: string; mode: "replace" | "copy" }) {
     setIsExporting(true);
@@ -324,6 +434,7 @@ export default function AnnotatedPDFCanvas({
         body: JSON.stringify({
           pdfUrl: url,
           strokes: strokesRef.current,
+          annotations: allAnnotations,
           canvasWidth: canvas.clientWidth,
           canvasHeight: canvas.clientHeight,
           replaceOriginal: options.mode === "replace",
@@ -347,33 +458,30 @@ export default function AnnotatedPDFCanvas({
         }
         alert("✅ Notebook slide deck successfully updated with your vector annotations!");
       } else {
-        // Trigger direct download
-        const a = document.createElement("a");
-        a.href = newUrl;
-        a.download = json.data?.filename || "annotated.pdf";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        setExportUrl(newUrl);
+        const link = document.createElement("a");
+        link.href = newUrl;
+        link.download = `${options.filename}.pdf`;
+        link.target = "_blank";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
       }
-
-      setExportUrl(newUrl);
-      setShowExportModal(false);
-    } catch (err) {
-      console.error("PDF export error:", err);
-      alert(err instanceof Error ? err.message : "Failed to export PDF");
+    } catch (err: unknown) {
+      alert(`Export failed: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setIsExporting(false);
+      setShowExportModal(false);
     }
   }
 
   return (
     <div className={styles.wrapper}>
-      {/* Export Options Modal */}
       <PDFExportModal
         isOpen={showExportModal}
-        defaultTitle={notebookTitle || "Lecture_Notes"}
         onClose={() => setShowExportModal(false)}
         onExport={handleModalExport}
+        defaultTitle={`${notebookTitle || "notebook"}-slide-${pageNumber}`}
         isExporting={isExporting}
         hasOriginalPdf={true}
       />
@@ -381,36 +489,56 @@ export default function AnnotatedPDFCanvas({
       {/* Controls Bar */}
       <div className={styles.controls}>
         <button className="btn-icon" onClick={undo} title="Undo">
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M3 7v6h6" />
             <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
           </svg>
         </button>
 
+        {/* Structured Annotation Subtools */}
+        <div className={styles.toolGroup}>
+          <button
+            className={`${styles.toolBtn} ${annMode === "ink" ? styles.toolBtnActive : ""}`}
+            onClick={() => setAnnMode("ink")}
+            id="pdf-tool-ink"
+            title="Freehand S-Pen Ink"
+          >
+            ✏️ Ink
+          </button>
+          <button
+            className={`${styles.toolBtn} ${annMode === "highlight" ? styles.toolBtnActive : ""}`}
+            onClick={() => setAnnMode("highlight")}
+            id="pdf-tool-highlight"
+            title="Highlight Box (drag to select area)"
+          >
+            🟡 Highlight
+          </button>
+          <button
+            className={`${styles.toolBtn} ${annMode === "underline" ? styles.toolBtnActive : ""}`}
+            onClick={() => setAnnMode("underline")}
+            id="pdf-tool-underline"
+            title="Underline Passages"
+          >
+            📏 Underline
+          </button>
+          <button
+            className={`${styles.toolBtn} ${annMode === "sticky" ? styles.toolBtnActive : ""}`}
+            onClick={() => setAnnMode("sticky")}
+            id="pdf-tool-sticky"
+            title="Place Sticky Note (click on slide)"
+          >
+            📝 Note
+          </button>
+        </div>
+
+        {/* Paginator */}
         <div className={styles.paginator}>
           <button
             className="btn-icon"
             onClick={() => onPageChange(pageNumber - 1)}
             disabled={pageNumber <= 1}
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M15 18l-6-6 6-6" /></svg>
           </button>
           <span className={styles.pageInfo}>
             {loading ? "Loading…" : `Slide ${pageNumber} / ${numPages}`}
@@ -420,16 +548,7 @@ export default function AnnotatedPDFCanvas({
             onClick={() => onPageChange(pageNumber + 1)}
             disabled={pageNumber >= numPages}
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6" /></svg>
           </button>
         </div>
 
@@ -443,17 +562,23 @@ export default function AnnotatedPDFCanvas({
           <span>Export PDF ▾</span>
         </button>
 
+        <button
+          className={`btn btn-ghost ${showDrawer ? "active" : ""}`}
+          onClick={() => setShowDrawer(d => !d)}
+          style={{ fontSize: "var(--text-xs)", padding: "6px 10px" }}
+          id="toggle-annotations-drawer"
+          title="View structured annotations index"
+        >
+          📋 Index ({allAnnotations.length})
+        </button>
+
         {exportUrl && (
           <a
             href={exportUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-ghost"
-            style={{
-              fontSize: "var(--text-xs)",
-              padding: "6px 12px",
-              color: "var(--success)",
-            }}
+            style={{ fontSize: "var(--text-xs)", padding: "6px 12px", color: "var(--success)" }}
           >
             ↓ Download
           </a>
@@ -468,22 +593,151 @@ export default function AnnotatedPDFCanvas({
         </button>
       </div>
 
-      {/* Canvas Stack */}
-      <div ref={containerRef} className={styles.canvasContainer}>
-        {loading && (
-          <div className={styles.loadingState}>
-            <div className={styles.spinner} />
-            <p>Loading PDF…</p>
+      {/* Main Layout with Canvas + Optional Annotation Drawer */}
+      <div className={styles.mainLayout}>
+        <div ref={containerRef} className={styles.canvasContainer}>
+          {loading && (
+            <div className={styles.loadingState}>
+              <div className={styles.spinner} />
+              <p>Loading PDF…</p>
+            </div>
+          )}
+          <div className={styles.canvasStack}>
+            <canvas ref={pdfCanvasRef} className={styles.pdfCanvas} />
+            <canvas
+              ref={drawCanvasRef}
+              className={styles.drawCanvas}
+              style={{
+                cursor:
+                  annMode === "sticky" ? "copy" :
+                  annMode === "highlight" || annMode === "underline" ? "crosshair" :
+                  tool === "eraser" ? "cell" : "crosshair",
+              }}
+            />
+
+            {/* SVG Structured Annotation Layer (Highlights & Underlines) */}
+            <svg
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                pointerEvents: "none",
+              }}
+            >
+              {annotations.map((ann) => {
+                if (ann.type === "highlight") {
+                  return (
+                    <rect
+                      key={ann.id}
+                      x={ann.x}
+                      y={ann.y}
+                      width={ann.width}
+                      height={ann.height}
+                      fill={ann.color || "rgba(253, 224, 71, 0.45)"}
+                      opacity={0.45}
+                      rx={2}
+                    />
+                  );
+                }
+                if (ann.type === "underline") {
+                  return (
+                    <rect
+                      key={ann.id}
+                      x={ann.x}
+                      y={ann.y + ann.height - 3}
+                      width={ann.width}
+                      height={3}
+                      fill={ann.color || "#2d6ef6"}
+                      rx={1.5}
+                    />
+                  );
+                }
+                return null;
+              })}
+            </svg>
+
+            {/* Sticky Notes Overlay */}
+            {annotations
+              .filter(ann => ann.type === "sticky")
+              .map(ann => (
+                <div
+                  key={ann.id}
+                  className={styles.stickyNote}
+                  style={{ top: `${ann.y}px`, left: `${ann.x}px` }}
+                >
+                  <div className={styles.stickyHeader}>
+                    <span>Note</span>
+                    <button
+                      className={styles.stickyClose}
+                      onClick={() => deleteAnnotation(ann.id)}
+                      title="Delete Note"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <textarea
+                    className={styles.stickyTextarea}
+                    defaultValue={ann.text}
+                    placeholder="Type note…"
+                    onChange={(e) => {
+                      ann.text = e.target.value;
+                    }}
+                  />
+                </div>
+              ))}
           </div>
-        )}
-        <div className={styles.canvasStack}>
-          <canvas ref={pdfCanvasRef} className={styles.pdfCanvas} />
-          <canvas
-            ref={drawCanvasRef}
-            className={styles.drawCanvas}
-            style={{ cursor: tool === "eraser" ? "cell" : "crosshair" }}
-          />
         </div>
+
+        {/* Side Annotation Drawer */}
+        {showDrawer && (
+          <aside className={styles.annotationDrawer} role="complementary" aria-label="PDF Annotations Index">
+            <div className={styles.drawerHeader}>
+              <span>Annotations ({allAnnotations.length})</span>
+              <button className="btn-icon" onClick={() => setShowDrawer(false)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className={styles.drawerList}>
+              {allAnnotations.length === 0 ? (
+                <p style={{ padding: "var(--space-4)", fontSize: "var(--text-xs)", color: "var(--text-muted)", textAlign: "center" }}>
+                  No annotations on this slide deck yet.
+                </p>
+              ) : (
+                allAnnotations.map((ann) => (
+                  <div
+                    key={ann.id}
+                    className={styles.annotationItem}
+                    onClick={() => {
+                      if (ann.page_number !== pageNumber) {
+                        onPageChange(ann.page_number);
+                      }
+                    }}
+                  >
+                    <div className={styles.annotationTop}>
+                      <span className={styles.annotationBadge}>Slide {ann.page_number}</span>
+                      <button
+                        className="btn-icon"
+                        style={{ padding: 2, height: "auto" }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteAnnotation(ann.id);
+                        }}
+                        title="Delete annotation"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                    <span className={styles.annotationText}>
+                      {ann.type === "sticky" ? ann.text || "Sticky Note" : ann.type === "highlight" ? "🟡 Highlight Region" : "📏 Underline Segment"}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   );
