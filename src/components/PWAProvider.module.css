@@ -1,0 +1,141 @@
+/* PWA Offline Toast & Install Banner */
+
+.offlineToast {
+  position: fixed;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface-raised);
+  border: 1px solid var(--warning);
+  color: var(--text-primary);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  z-index: 1000;
+  animation: slideUp 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.offlineDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 8px var(--warning);
+}
+
+.queueBadge {
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
+  color: var(--warning);
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 99px;
+  font-size: 10px;
+}
+
+.syncToast {
+  position: fixed;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface-raised);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  z-index: 1000;
+  animation: slideUp 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Install Banner */
+.installBanner {
+  position: fixed;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.25);
+  padding: var(--space-4);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: var(--space-3);
+  z-index: 1000;
+  animation: slideUpRight 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUpRight {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.installIcon {
+  grid-row: span 2;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+}
+
+.installContent h4 {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.installContent p {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.installActions {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 4px;
+}
+
+.installActions button {
+  font-size: 12px !important;
+  padding: 6px 14px !important;
+}
+
+/* Responsive adjustment for tablets & mobile */
+@media (max-width: 768px) {
+  .installBanner {
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: var(--space-3);
+    max-width: none;
+  }
+}

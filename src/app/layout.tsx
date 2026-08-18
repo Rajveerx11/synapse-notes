@@ -1,16 +1,22 @@
 import type { Metadata, Viewport } from "next";
+import PWAProvider from "@/components/PWAProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Synapse Notes",
+  title: "Synapse Notes — AI Tablet Notebook",
   description: "AI-native notebook for handwriting, PDF annotations, and AI agent integration.",
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Synapse Notes",
+  },
   icons: {
     icon: "/favicon.ico",
     shortcut: "/favicon.ico",
     apple: "/icons/icon-192.png",
   },
-  keywords: ["notes", "AI", "tablet", "handwriting", "study", "ML"],
+  keywords: ["notes", "AI", "tablet", "handwriting", "study", "ML", "PWA"],
 };
 
 export const viewport: Viewport = {
@@ -31,6 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/favicon.png" type="image/png" />
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <meta name="mobile-web-app-capable" content="yes" />
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -44,7 +51,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <PWAProvider>{children}</PWAProvider>
+      </body>
     </html>
   );
 }
+

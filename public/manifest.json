@@ -1,12 +1,14 @@
 {
-  "name": "Synapse Notes",
+  "name": "Synapse Notes — AI Tablet Notebook",
   "short_name": "Synapse",
-  "description": "AI-native notebook for handwriting, PDF annotations, and AI agents",
+  "description": "AI-native digital notebook for Samsung Galaxy Tab S-Pen handwriting, lecture PDF markup, and AI agent integration.",
   "start_url": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#f8f7f4",
   "theme_color": "#2d6ef6",
   "orientation": "any",
+  "categories": ["productivity", "education"],
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -19,6 +21,15 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Notebook",
+      "short_name": "New Note",
+      "description": "Create a new handwriting canvas",
+      "url": "/",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

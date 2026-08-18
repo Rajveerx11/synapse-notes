@@ -18,6 +18,7 @@ import {
   exportToExcel,
 } from "@/lib/exportUtils";
 import { quantizeStrokes } from "@/lib/compressionUtils";
+import { queueStrokeUpdate } from "@/lib/offlineQueue";
 import styles from "./NotebookEditor.module.css";
 
 interface Props {
@@ -65,6 +66,21 @@ export default function NotebookEditor({
   const [pdfUrl, setPdfUrl] = useState<string | null>(initialPdfUrl);
   const [showPDF, setShowPDF] = useState<boolean>(!!initialPdfUrl);
   const [cards, setCards] = useState<AiCard[]>(initialCards);
+  const [isOnline, setIsOnline] = useState(true);
+
+  // Track online/offline status
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setIsOnline(navigator.onLine);
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
 
   // OCR text callback — update the local page text_content
   const handleOcrSave = useCallback((text: string) => {
@@ -196,8 +212,19 @@ export default function NotebookEditor({
 
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          queueStrokeUpdate({
+            notebookId: notebook.id,
+            pageNumber: pageNo,
+            strokesJson: JSON.stringify(strokes),
+            pdfUrl: pdfUrl,
+          });
+          setSaveStatus("saved");
+          return;
+        }
+
         try {
-          await fetch(`/api/notebooks/${notebook.id}/pages`, {
+          const res = await fetch(`/api/notebooks/${notebook.id}/pages`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -206,8 +233,22 @@ export default function NotebookEditor({
               pdf_url: pdfUrl,
             }),
           });
+          if (!res.ok) {
+            queueStrokeUpdate({
+              notebookId: notebook.id,
+              pageNumber: pageNo,
+              strokesJson: JSON.stringify(strokes),
+              pdfUrl: pdfUrl,
+            });
+          }
         } catch (e) {
-          console.warn("Server sync background warning:", e);
+          console.warn("Server sync background warning, queued offline:", e);
+          queueStrokeUpdate({
+            notebookId: notebook.id,
+            pageNumber: pageNo,
+            strokesJson: JSON.stringify(strokes),
+            pdfUrl: pdfUrl,
+          });
         }
         setSaveStatus("saved");
       }, 1000);
@@ -402,8 +443,16 @@ export default function NotebookEditor({
             )}
             {notebook.subject && <span className={styles.notebookSubject}>{notebook.subject}</span>}
           </div>
-          <span className={`${styles.saveBadge} ${saveStatus === "saving" ? styles.saving : ""}`}>
-            {saveStatus === "saving" ? "Saving…" : "Synced ✓"}
+          <span
+            className={`${styles.saveBadge} ${
+              !isOnline ? styles.saving : saveStatus === "saving" ? styles.saving : ""
+            }`}
+          >
+            {!isOnline
+              ? "Offline (Local ✓)"
+              : saveStatus === "saving"
+              ? "Saving…"
+              : "Synced ✓"}
           </span>
         </div>
 
