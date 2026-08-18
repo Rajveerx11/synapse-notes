@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Notebook } from "@/lib/types";
 import NotebookCard from "./NotebookCard";
 import ThemeToggle from "./ThemeToggle";
+import FlashcardReviewModal from "./FlashcardReviewModal";
 import styles from "./Dashboard.module.css";
 
 interface Props {
@@ -17,6 +18,7 @@ export default function DashboardClient({ notebooks: initial, username }: Props)
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
   const [showNew, setShowNew] = useState(false);
+  const [showReview, setShowReview] = useState(false);
   const router = useRouter();
 
   // Hydrate from localStorage on client mount (merge with server data)
@@ -187,16 +189,31 @@ export default function DashboardClient({ notebooks: initial, username }: Props)
                 : `${notebooks.length} notebook${notebooks.length === 1 ? "" : "s"}`}
             </p>
           </div>
-          <button
-            className="btn btn-primary"
-            onClick={() => setShowNew(true)}
-            id="new-notebook-btn"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-            New Notebook
-          </button>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setShowReview(true)}
+              id="study-flashcards-btn"
+              title="Practice active recall spaced repetition"
+              style={{ border: "1px solid var(--border)" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="7" width="20" height="14" rx="2" />
+                <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+              </svg>
+              Study Flashcards
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowNew(true)}
+              id="new-notebook-btn"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              New Notebook
+            </button>
+          </div>
         </div>
 
         {/* New Notebook Form */}
@@ -206,25 +223,23 @@ export default function DashboardClient({ notebooks: initial, username }: Props)
               <div className={styles.newFormFields}>
                 <input
                   type="text"
-                  placeholder="Notebook title (e.g. Machine Learning — Sem 5)"
+                  placeholder="Notebook title (e.g., Organic Chemistry, Linear Algebra)"
                   value={title}
                   onChange={e => setTitle(e.target.value)}
                   style={{ flex: 2, padding: "9px 12px", fontSize: "var(--text-sm)" }}
                   autoFocus
                   required
-                  id="notebook-title-input"
                 />
                 <input
                   type="text"
-                  placeholder="Subject (e.g. Deep Learning)"
+                  placeholder="Subject / Course code (optional, e.g., CS 101)"
                   value={subject}
                   onChange={e => setSubject(e.target.value)}
                   style={{ flex: 1, padding: "9px 12px", fontSize: "var(--text-sm)" }}
-                  id="notebook-subject-input"
                 />
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button type="submit" className="btn btn-primary" disabled={creating} id="create-notebook-submit">
+                <button type="submit" className="btn btn-primary" disabled={creating || !title.trim()} id="create-notebook-submit">
                   {creating ? "Creating…" : "Create"}
                 </button>
                 <button type="button" className="btn btn-ghost" onClick={() => { setShowNew(false); setTitle(""); setSubject(""); }}>
@@ -255,6 +270,11 @@ export default function DashboardClient({ notebooks: initial, username }: Props)
           </div>
         )}
       </main>
+
+      {/* Spaced Repetition Flashcard Review Modal */}
+      {showReview && (
+        <FlashcardReviewModal onClose={() => setShowReview(false)} />
+      )}
     </div>
   );
 }

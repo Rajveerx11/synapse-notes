@@ -106,9 +106,21 @@ export async function bootstrapSchema(): Promise<void> {
         content TEXT NOT NULL,
         diagram_type TEXT NOT NULL DEFAULT 'none',
         diagram_data TEXT NOT NULL DEFAULT '',
+        interval_days INTEGER DEFAULT 0,
+        ease_factor REAL DEFAULT 2.5,
+        repetitions INTEGER DEFAULT 0,
+        next_review_at BIGINT DEFAULT 0,
         created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
       )
     `);
+    try {
+      await queryDb(`ALTER TABLE ai_cards ADD COLUMN IF NOT EXISTS interval_days INTEGER DEFAULT 0`);
+      await queryDb(`ALTER TABLE ai_cards ADD COLUMN IF NOT EXISTS ease_factor REAL DEFAULT 2.5`);
+      await queryDb(`ALTER TABLE ai_cards ADD COLUMN IF NOT EXISTS repetitions INTEGER DEFAULT 0`);
+      await queryDb(`ALTER TABLE ai_cards ADD COLUMN IF NOT EXISTS next_review_at BIGINT DEFAULT 0`);
+    } catch (e) {
+      // Columns may already exist
+    }
     schemaInitialized = true;
   } catch (e) {
     console.warn("Schema bootstrap warning:", e);
@@ -531,6 +543,107 @@ export const dbService = {
     if (nb) nb.updated_at = now;
     saveFallbackData(data);
     return card;
+  },
+
+  async updateCardReview(
+    cardId: string,
+    srs: {
+      intervalDays: number;
+      easeFactor: number;
+      repetitions: number;
+      nextReviewAt: number;
+    }
+  ): Promise<void> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await queryDb(
+          `UPDATE ai_cards SET
+            interval_days = $1,
+            ease_factor = $2,
+            repetitions = $3,
+            next_review_at = $4
+           WHERE id = $5`,
+          [srs.intervalDays, srs.easeFactor, srs.repetitions, srs.nextReviewAt, cardId]
+        );
+        return;
+      } catch (e) {
+        console.warn("Postgres updateCardReview error, using fallback:", e);
+      }
+    }
+
+    const data = loadFallbackData();
+    const card = data.ai_cards.find((c) => c.id === cardId);
+    if (card) {
+      card.interval_days = srs.intervalDays;
+      card.ease_factor = srs.easeFactor;
+      card.repetitions = srs.repetitions;
+      card.next_review_at = srs.nextReviewAt;
+      saveFallbackData(data);
+    }
+  },
+
+  async listDueCards(userId: string, notebookId?: string): Promise<AiCard[]> {
+    const now = Math.floor(Date.now() / 1000);
+
+    if (process.env.DATABASE_URL) {
+      try {
+        if (notebookId) {
+          const rows = await queryDb<AiCard>(
+            `SELECT ac.* FROM ai_cards ac
+             JOIN notebooks n ON n.id = ac.notebook_id
+             WHERE n.user_id = $1 AND ac.notebook_id = $2
+               AND (ac.next_review_at IS NULL OR ac.next_review_at <= $3)
+             ORDER BY ac.created_at ASC`,
+            [userId, notebookId, now]
+          );
+          return rows;
+        } else {
+          const rows = await queryDb<AiCard>(
+            `SELECT ac.* FROM ai_cards ac
+             JOIN notebooks n ON n.id = ac.notebook_id
+             WHERE n.user_id = $1
+               AND (ac.next_review_at IS NULL OR ac.next_review_at <= $2)
+             ORDER BY ac.created_at ASC`,
+            [userId, now]
+          );
+          return rows;
+        }
+      } catch (e) {
+        console.warn("Postgres listDueCards error, using fallback:", e);
+      }
+    }
+
+    const data = loadFallbackData();
+    const userNotebooks = data.notebooks.filter((n) => n.user_id === userId || userId === "mcp");
+    const nbIds = new Set(userNotebooks.map((n) => n.id));
+
+    return data.ai_cards
+      .filter((c) => {
+        if (!nbIds.has(c.notebook_id)) return false;
+        if (notebookId && c.notebook_id !== notebookId) return false;
+        return !c.next_review_at || c.next_review_at <= now;
+      })
+      .sort((a, b) => (a.next_review_at || 0) - (b.next_review_at || 0));
+  },
+
+  async deleteAiCard(cardId: string): Promise<boolean> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await queryDb(`DELETE FROM ai_cards WHERE id = $1`, [cardId]);
+        return true;
+      } catch (e) {
+        console.warn("Postgres deleteAiCard error, using fallback:", e);
+      }
+    }
+
+    const data = loadFallbackData();
+    const idx = data.ai_cards.findIndex((c) => c.id === cardId);
+    if (idx >= 0) {
+      data.ai_cards.splice(idx, 1);
+      saveFallbackData(data);
+      return true;
+    }
+    return false;
   },
 
   async searchNotes(userId: string, query: string) {

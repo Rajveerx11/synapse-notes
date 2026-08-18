@@ -9,6 +9,7 @@ import StudyCard from "./StudyCard";
 import ThemeToggle from "./ThemeToggle";
 import PDFExportModal from "./PDFExportModal";
 import OcrPanel from "./OcrPanel";
+import FlashcardReviewModal from "./FlashcardReviewModal";
 import {
   getActiveCanvasSnapshot,
   exportCanvasToImage,
@@ -63,6 +64,7 @@ export default function NotebookEditor({
   // Panel & PDF state with persistent restoration
   const [showCards, setShowCards] = useState(false);
   const [showOcr,   setShowOcr]   = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(initialPdfUrl);
   const [showPDF, setShowPDF] = useState<boolean>(!!initialPdfUrl);
   const [cards, setCards] = useState<AiCard[]>(initialCards);
@@ -662,9 +664,22 @@ export default function NotebookEditor({
           <aside className={styles.cardsPanel}>
             <div className={styles.cardsPanelHeader}>
               <h3>AI Study Cards</h3>
-              <button className="btn-icon" onClick={() => setShowCards(false)} id="close-cards-btn">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {cards.length > 0 && (
+                  <button
+                    className="btn btn-primary"
+                    style={{ fontSize: "11px", padding: "4px 8px" }}
+                    onClick={() => setShowReviewModal(true)}
+                    id="study-panel-btn"
+                    title="Start active recall review session"
+                  >
+                    Study (SRS)
+                  </button>
+                )}
+                <button className="btn-icon" onClick={() => setShowCards(false)} id="close-cards-btn">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+                </button>
+              </div>
             </div>
             <div className={styles.cardsList}>
               {cards.length === 0 ? (
@@ -694,6 +709,15 @@ export default function NotebookEditor({
           />
         )}
       </div>
+
+      {/* Spaced Repetition Flashcard Review Modal */}
+      {showReviewModal && (
+        <FlashcardReviewModal
+          notebookId={notebook.id}
+          notebookTitle={notebook.title}
+          onClose={() => setShowReviewModal(false)}
+        />
+      )}
     </div>
   );
 }

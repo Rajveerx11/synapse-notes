@@ -44,6 +44,10 @@ export interface AiCard {
   diagram_type: "none" | "mermaid" | "flowchart";
   diagram_data: string;
   created_at: number;
+  interval_days?: number;
+  ease_factor?: number;
+  repetitions?: number;
+  next_review_at?: number;
 }
 
 export interface ApiResponse<T = unknown> {
