@@ -8,6 +8,7 @@ import AnnotatedPDFCanvas from "./AnnotatedPDFCanvas";
 import StudyCard from "./StudyCard";
 import ThemeToggle from "./ThemeToggle";
 import PDFExportModal from "./PDFExportModal";
+import OcrPanel from "./OcrPanel";
 import {
   getActiveCanvasSnapshot,
   exportCanvasToImage,
@@ -60,9 +61,17 @@ export default function NotebookEditor({
 
   // Panel & PDF state with persistent restoration
   const [showCards, setShowCards] = useState(false);
+  const [showOcr,   setShowOcr]   = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(initialPdfUrl);
   const [showPDF, setShowPDF] = useState<boolean>(!!initialPdfUrl);
   const [cards, setCards] = useState<AiCard[]>(initialCards);
+
+  // OCR text callback — update the local page text_content
+  const handleOcrSave = useCallback((text: string) => {
+    setPages(prev => prev.map(p =>
+      p.page_number === currentPage ? { ...p, text_content: text } : p
+    ));
+  }, [currentPage]);
 
   // Auto-save debounce ref
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -560,6 +569,8 @@ export default function NotebookEditor({
           onColorChange={setColor}
           size={size}
           onSizeChange={setSize}
+          onOcrClick={() => { setShowOcr(v => !v); setShowCards(false); }}
+          showOcr={showOcr}
         />
 
         {/* Canvas / Annotated PDF */}
@@ -622,6 +633,16 @@ export default function NotebookEditor({
               )}
             </div>
           </aside>
+        )}
+
+        {/* Right — OCR Panel */}
+        {showOcr && (
+          <OcrPanel
+            notebookId={notebook.id}
+            pageNumber={currentPage}
+            onSaveText={handleOcrSave}
+            onClose={() => setShowOcr(false)}
+          />
         )}
       </div>
     </div>
