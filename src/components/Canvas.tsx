@@ -7,6 +7,27 @@ import styles from "./Canvas.module.css";
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MAX_HISTORY = 50;
 
+/**
+ * Polyfill for CanvasRenderingContext2D.roundRect — not available in older
+ * Samsung Internet / Chrome <99 shipping on some Galaxy Tab firmware.
+ */
+function roundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, r: number
+) {
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, r);
+    return;
+  }
+  // Fallback: manual arc path
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y,     x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x,     y + h, r);
+  ctx.arcTo(x,     y + h, x,     y,     r);
+  ctx.arcTo(x,     y,     x + w, y,     r);
+  ctx.closePath();
+}
+
 interface Props {
   notebookId: string;
   pageNumber: number;
@@ -151,7 +172,7 @@ function drawSelectionOverlay(
     ctx.lineWidth = 1.5;
     ctx.fillStyle = "rgba(59,130,246,0.07)";
     ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 4);
+    roundRect(ctx, x, y, w, h, 4);
     ctx.fill();
     ctx.stroke();
 
@@ -176,7 +197,7 @@ function drawSelectionOverlay(
       const by = y - 22;
       ctx.fillStyle = "rgba(59,130,246,0.9)";
       ctx.beginPath();
-      ctx.roundRect(bx, by, tw + 12, 18, 4);
+      roundRect(ctx, bx, by, tw + 12, 18, 4);
       ctx.fill();
       ctx.fillStyle = "white";
       ctx.fillText(label, bx + 6, by + 13);

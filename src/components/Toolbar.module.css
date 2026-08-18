@@ -1,5 +1,5 @@
 .toolbar {
-  width: 58px;
+  width: 64px;
   flex-shrink: 0;
   background: var(--surface);
   border-right: 1px solid var(--border);
@@ -12,6 +12,8 @@
   user-select: none;
   overflow-y: auto;
   scrollbar-width: none;
+  /* Prevent touch-scroll from interfering with stylus drawing */
+  touch-action: pan-y;
 }
 
 .toolbar::-webkit-scrollbar {
@@ -24,6 +26,7 @@
   justify-content: center;
   cursor: pointer;
   transition: transform var(--duration-fast);
+  touch-action: manipulation;
 }
 
 .logoMark:hover {
@@ -31,7 +34,7 @@
 }
 
 .divider {
-  width: 28px;
+  width: 32px;
   height: 1px;
   background: var(--border);
   flex-shrink: 0;
@@ -44,10 +47,10 @@
   gap: 6px;
 }
 
-/* Tool Buttons with Active Pill Glow */
+/* Tool Buttons — 44×44 on touch, 40×40 on pointer */
 .toolBtn {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -58,6 +61,7 @@
   cursor: pointer;
   transition: all var(--duration-fast);
   position: relative;
+  touch-action: manipulation;
 }
 
 .toolBtn:hover {
@@ -72,10 +76,17 @@
   box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
+@media (pointer: coarse) {
+  .toolBtn {
+    width: 48px;
+    height: 48px;
+  }
+}
+
 /* Live Brush Preview Dot */
 .brushPreview {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -90,7 +101,7 @@
   transition: all var(--duration-fast);
 }
 
-/* Color Swatches */
+/* Color Swatches — 28px desktop, 36px on touch */
 .colorGrid {
   display: flex;
   flex-direction: column;
@@ -99,14 +110,23 @@
 }
 
 .colorSwatch {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   border: 1.5px solid var(--border);
   cursor: pointer;
   transition: all var(--duration-fast);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   padding: 0;
+  touch-action: manipulation;
+  /* Expanded tap area via pseudo-element */
+  position: relative;
+}
+
+.colorSwatch::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
 }
 
 .colorSwatch:hover {
@@ -115,12 +135,25 @@
 
 .colorSwatch.selected {
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
-  transform: scale(1.1);
+  transform: scale(1.12);
+}
+
+@media (pointer: coarse) {
+  .colorSwatch {
+    width: 32px;
+    height: 32px;
+  }
+  .colorSwatch::after {
+    inset: -4px;
+  }
+  .colorGrid {
+    gap: 8px;
+  }
 }
 
 .colorPicker {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   border: 1.5px dashed var(--text-muted);
   display: flex;
@@ -129,6 +162,14 @@
   cursor: pointer;
   color: var(--text-muted);
   transition: all var(--duration-fast);
+  touch-action: manipulation;
+  position: relative;
+}
+
+.colorPicker::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
 }
 
 .colorPicker:hover {
@@ -137,10 +178,18 @@
   transform: scale(1.15);
 }
 
-/* Size Buttons */
+@media (pointer: coarse) {
+  .colorPicker {
+    width: 32px;
+    height: 32px;
+  }
+  .colorPicker::after { inset: -4px; }
+}
+
+/* Size Buttons — 36px desktop, 44px on touch */
 .sizeBtn {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -150,6 +199,7 @@
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--duration-fast);
+  touch-action: manipulation;
 }
 
 .sizeBtn:hover {
@@ -159,4 +209,12 @@
 .sizeBtn.activeSize {
   background: var(--bg-secondary);
   color: var(--accent);
+}
+
+@media (pointer: coarse) {
+  .sizeBtn {
+    width: 44px;
+    height: 44px;
+  }
+  .section { gap: 4px; }
 }
