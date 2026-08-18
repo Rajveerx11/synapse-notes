@@ -14,21 +14,21 @@
 
 .paperDots {
   background-color: var(--canvas-bg);
-  background-image: radial-gradient(circle, var(--border) 1.2px, transparent 1.2px);
+  background-image: radial-gradient(circle, var(--paper-pattern) 1.2px, transparent 1.2px);
   background-size: 24px 24px;
 }
 
 .paperRuled {
   background-color: var(--canvas-bg);
-  background-image: linear-gradient(var(--border) 1px, transparent 1px);
+  background-image: linear-gradient(var(--paper-pattern) 1px, transparent 1px);
   background-size: 100% 32px;
 }
 
 .paperGraph {
   background-color: var(--canvas-bg);
   background-image: 
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    linear-gradient(var(--paper-pattern) 1px, transparent 1px),
+    linear-gradient(90deg, var(--paper-pattern) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 

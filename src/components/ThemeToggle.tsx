@@ -17,6 +17,7 @@ export default function ThemeToggle() {
     setDark(next);
     document.documentElement.setAttribute("data-theme", next ? "dark" : "light");
     localStorage.setItem("synapse_theme", next ? "dark" : "light");
+    window.dispatchEvent(new CustomEvent("synapse_theme_changed", { detail: { theme: next ? "dark" : "light" } }));
   }
 
   return (

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef } from "react";
+import ThemeToggle from "@/components/ThemeToggle";
 import styles from "./login.module.css";
 
 export default function LoginPage() {
@@ -60,15 +61,18 @@ export default function LoginPage() {
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        {/* Logo */}
-        <div className={styles.logo}>
-          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-            <rect width="36" height="36" rx="10" fill="var(--accent)" />
-            <path d="M10 12h16M10 18h10M10 24h13" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
-            <circle cx="27" cy="24" r="4" fill="white" opacity="0.9" />
-            <path d="M25.5 24l1 1 2-2" stroke="var(--accent)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span>Synapse Notes</span>
+        {/* Header with Logo & ThemeToggle */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-6)" }}>
+          <div className={styles.logo} style={{ marginBottom: 0 }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <rect width="36" height="36" rx="10" fill="var(--accent)" />
+              <path d="M10 12h16M10 18h10M10 24h13" stroke="white" strokeWidth="2.2" strokeLinecap="round" />
+              <circle cx="27" cy="24" r="4" fill="white" opacity="0.9" />
+              <path d="M25.5 24l1 1 2-2" stroke="var(--accent)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span>Synapse Notes</span>
+          </div>
+          <ThemeToggle />
         </div>
 
         <h1 className={styles.title}>

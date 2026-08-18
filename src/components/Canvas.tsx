@@ -105,7 +105,14 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     ctx.globalAlpha = stroke.opacity ?? 1;
   }
 
-  ctx.strokeStyle = stroke.color;
+  let strokeColor = stroke.color;
+  if (typeof document !== "undefined") {
+    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+    if (isDark && (strokeColor === "#1a1917" || strokeColor === "#000000" || strokeColor === "black")) {
+      strokeColor = "#f5f4f0";
+    }
+  }
+  ctx.strokeStyle = strokeColor;
   const pts = stroke.points;
 
   for (let i = 0; i < pts.length - 1; i++) {
@@ -296,6 +303,18 @@ export default function Canvas({
     ro.observe(container);
     return () => ro.disconnect();
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ─── Theme change listener — redraw ink with appropriate contrast ─────────
+  useEffect(() => {
+    const handleThemeChange = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (ctx) redrawAll(ctx, strokesRef.current);
+    };
+    window.addEventListener("synapse_theme_changed", handleThemeChange);
+    return () => window.removeEventListener("synapse_theme_changed", handleThemeChange);
   }, []);
 
   // ─── Coordinate + pressure extraction ─────────────────────────────────────
