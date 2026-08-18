@@ -19,11 +19,52 @@ interface Props {
 
 type PaperType = "dots" | "ruled" | "graph" | "blank";
 
+// ─── Geometry helpers ─────────────────────────────────────────────────────────
+
+/** Ray-casting algorithm: is point (px, py) inside polygon `path`? */
+function pointInPolygon(px: number, py: number, path: {x: number; y: number}[]) {
+  let inside = false;
+  for (let i = 0, j = path.length - 1; i < path.length; j = i++) {
+    const xi = path[i].x, yi = path[i].y;
+    const xj = path[j].x, yj = path[j].y;
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Does any point of `stroke` fall inside lasso `path`? */
+function strokeInLasso(stroke: Stroke, path: {x: number; y: number}[]) {
+  return stroke.points.some(p => pointInPolygon(p.x, p.y, path));
+}
+
+/** Compute axis-aligned bounding box of a set of strokes (canvas coords). */
+function strokesBBox(strokes: Stroke[]) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const s of strokes) {
+    for (const p of s.points) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/** Translate all points in strokes by (dx, dy). Returns new stroke array. */
+function translateStrokes(strokes: Stroke[], dx: number, dy: number): Stroke[] {
+  return strokes.map(s => ({
+    ...s,
+    points: s.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })),
+  }));
+}
+
 // ─── Variable-width Bézier stroke renderer ────────────────────────────────────
 /**
- * Draws a single stroke using variable-width segments to simulate S-Pen
- * pressure sensitivity. Each point carries a `pressure` value (0–1) that
- * linearly scales the configured stroke size for that segment.
+ * Draws a stroke using per-segment lineWidth derived from point.pressure so
+ * S-Pen pressure maps naturally to ink thickness.
  */
 function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   if (!stroke?.points || stroke.points.length < 2) return;
@@ -44,21 +85,15 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   }
 
   ctx.strokeStyle = stroke.color;
-
-  // Draw segments between consecutive pairs so each segment can have its own
-  // lineWidth derived from the average pressure of its two endpoints.
   const pts = stroke.points;
+
   for (let i = 0; i < pts.length - 1; i++) {
     const p0 = pts[i];
     const p1 = pts[i + 1];
     const avgPressure = ((p0.pressure ?? 0.5) + (p1.pressure ?? 0.5)) / 2;
-    // Pressure maps 0→0.4× base size, 1→1.6× base size (natural feel)
-    const w = stroke.size * (0.4 + avgPressure * 1.2);
-    ctx.lineWidth = Math.max(0.5, w);
+    ctx.lineWidth = Math.max(0.5, stroke.size * (0.4 + avgPressure * 1.2));
     ctx.beginPath();
     ctx.moveTo(p0.x, p0.y);
-
-    // Use midpoint quadratic for smooth curves when we have a look-ahead
     if (i < pts.length - 2) {
       const mx = (p1.x + pts[i + 2].x) / 2;
       const my = (p1.y + pts[i + 2].y) / 2;
@@ -68,13 +103,86 @@ function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
     }
     ctx.stroke();
   }
-
   ctx.restore();
 }
 
 function redrawAll(ctx: CanvasRenderingContext2D, strokes: Stroke[]) {
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   for (const stroke of strokes) drawStroke(ctx, stroke);
+}
+
+// ─── Selection overlay renderer ───────────────────────────────────────────────
+function drawSelectionOverlay(
+  ctx: CanvasRenderingContext2D,
+  selectedStrokes: Stroke[],
+  lassoPath: {x: number; y: number}[] | null,
+  isDragging: boolean
+) {
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+  // Draw in-progress lasso path
+  if (lassoPath && lassoPath.length > 1) {
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = "rgba(59,130,246,0.8)";
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = "rgba(59,130,246,0.06)";
+    ctx.beginPath();
+    ctx.moveTo(lassoPath[0].x, lassoPath[0].y);
+    for (let i = 1; i < lassoPath.length; i++) ctx.lineTo(lassoPath[i].x, lassoPath[i].y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Draw selection bounding box around selected strokes
+  if (selectedStrokes.length > 0) {
+    const { minX, minY, maxX, maxY } = strokesBBox(selectedStrokes);
+    const pad = 8;
+    const x = minX - pad, y = minY - pad;
+    const w = maxX - minX + pad * 2;
+    const h = maxY - minY + pad * 2;
+
+    ctx.save();
+    // Selection box
+    ctx.setLineDash([6, 3]);
+    ctx.strokeStyle = isDragging ? "rgba(59,130,246,1)" : "rgba(59,130,246,0.85)";
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = "rgba(59,130,246,0.07)";
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    // Corner handles
+    ctx.setLineDash([]);
+    ctx.fillStyle = "white";
+    ctx.strokeStyle = "rgba(59,130,246,1)";
+    ctx.lineWidth = 1.5;
+    for (const [hx, hy] of [[x,y],[x+w,y],[x,y+h],[x+w,y+h]]) {
+      ctx.beginPath();
+      ctx.arc(hx, hy, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Count badge
+    if (selectedStrokes.length > 1) {
+      const label = `${selectedStrokes.length} strokes`;
+      ctx.font = "500 11px Inter, system-ui, sans-serif";
+      const tw = ctx.measureText(label).width;
+      const bx = x + w / 2 - tw / 2 - 6;
+      const by = y - 22;
+      ctx.fillStyle = "rgba(59,130,246,0.9)";
+      ctx.beginPath();
+      ctx.roundRect(bx, by, tw + 12, 18, 4);
+      ctx.fill();
+      ctx.fillStyle = "white";
+      ctx.fillText(label, bx + 6, by + 13);
+    }
+    ctx.restore();
+  }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -86,28 +194,58 @@ export default function Canvas({
   onStrokesChange,
   initialStrokes,
 }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // Overlay canvas for hover cursor (separate layer avoids redraw flicker)
-  const overlayRef = useRef<HTMLCanvasElement>(null);
+  // Overlay: handles both hover cursor AND lasso/selection visuals
+  const overlayRef   = useRef<HTMLCanvasElement>(null);
 
-  const strokesRef = useRef<Stroke[]>(initialStrokes);
+  const strokesRef      = useRef<Stroke[]>(initialStrokes);
   const currentStrokeRef = useRef<Stroke | null>(null);
-  const isDrawingRef = useRef(false);
+  const isDrawingRef    = useRef(false);
 
-  // Undo/redo stacks — history entries are immutable snapshots of the strokes array.
-  // The current state is always at the END of undoStackRef; the initial snapshot
-  // is seeded so that undo() always has a base to return to (empty page).
+  // Undo/redo
   const undoStackRef = useRef<Stroke[][]>([initialStrokes]);
   const redoStackRef = useRef<Stroke[][]>([]);
-
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+
+  // Paper
   const [paperType, setPaperType] = useState<PaperType>("dots");
+
+  // ─── Lasso / selection state ───────────────────────────────────────────────
+  type LassoPhase = "idle" | "drawing" | "selected" | "dragging";
+  const lassoPhaseRef    = useRef<LassoPhase>("idle");
+  const lassoPathRef     = useRef<{x: number; y: number}[]>([]);
+  const selectedIdsRef   = useRef<Set<string>>(new Set());
+  const dragStartRef     = useRef<{x: number; y: number} | null>(null);
+  const [selectionCount, setSelectionCount] = useState(0);
+
+  // Derived: array of currently selected Stroke objects
+  const getSelectedStrokes = useCallback(() =>
+    strokesRef.current.filter(s => selectedIdsRef.current.has(s.id)),
+  []);
+
+  // Clear lasso selection and re-render overlay
+  const clearSelection = useCallback(() => {
+    lassoPhaseRef.current = "idle";
+    lassoPathRef.current = [];
+    selectedIdsRef.current = new Set();
+    setSelectionCount(0);
+    const ov = overlayRef.current;
+    if (ov) {
+      const ctx = ov.getContext("2d")!;
+      ctx.clearRect(0, 0, ov.width, ov.height);
+    }
+  }, []);
+
+  // Whenever tool changes away from lasso, clear any active selection
+  useEffect(() => {
+    if (tool !== "lasso") clearSelection();
+  }, [tool, clearSelection]);
 
   // ─── Canvas resolution & redraw on container resize ───────────────────────
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas    = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
 
@@ -116,21 +254,19 @@ export default function Canvas({
       const { width, height } = container.getBoundingClientRect();
       if (width === 0 || height === 0) return;
 
-      // Main drawing canvas
-      canvas.width = width * dpr;
+      canvas.width  = width * dpr;
       canvas.height = height * dpr;
-      canvas.style.width = `${width}px`;
+      canvas.style.width  = `${width}px`;
       canvas.style.height = `${height}px`;
       const ctx = canvas.getContext("2d")!;
       ctx.scale(dpr, dpr);
       redrawAll(ctx, strokesRef.current);
 
-      // Overlay canvas (same dimensions)
       const overlay = overlayRef.current;
       if (overlay) {
-        overlay.width = width * dpr;
+        overlay.width  = width * dpr;
         overlay.height = height * dpr;
-        overlay.style.width = `${width}px`;
+        overlay.style.width  = `${width}px`;
         overlay.style.height = `${height}px`;
         overlay.getContext("2d")!.scale(dpr, dpr);
       }
@@ -144,11 +280,10 @@ export default function Canvas({
   // ─── Coordinate + pressure extraction ─────────────────────────────────────
   const getPos = useCallback((e: PointerEvent) => {
     const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
+    const rect   = canvas.getBoundingClientRect();
     return {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
-      // S-Pen reports 0–1; mouse always reports 0 or 0.5; default 0.5
       pressure: e.pressure > 0 ? e.pressure : 0.5,
     };
   }, []);
@@ -156,12 +291,11 @@ export default function Canvas({
   // ─── S-Pen hover cursor on overlay canvas ────────────────────────────────
   const onPointerHover = useCallback((e: PointerEvent) => {
     const overlay = overlayRef.current;
-    if (!overlay || isDrawingRef.current) return;
-    const ctx = overlay.getContext("2d")!;
+    if (!overlay || isDrawingRef.current || lassoPhaseRef.current !== "idle") return;
+    const ctx  = overlay.getContext("2d")!;
     const rect = overlay.getBoundingClientRect();
     ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-    // Only show stylus hover dot for pen pointer type (S-Pen hover)
     if (e.pointerType !== "pen") return;
 
     const x = e.clientX - rect.left;
@@ -171,10 +305,10 @@ export default function Canvas({
     ctx.save();
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = tool === "eraser" ? "rgba(150,150,150,0.35)" : color + "55";
+    ctx.fillStyle   = tool === "eraser" ? "rgba(150,150,150,0.35)" : color + "55";
     ctx.fill();
-    ctx.strokeStyle = tool === "eraser" ? "rgba(100,100,100,0.6)" : color + "99";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = tool === "eraser" ? "rgba(100,100,100,0.6)"  : color + "99";
+    ctx.lineWidth   = 1;
     ctx.stroke();
     ctx.restore();
   }, [color, size, tool]);
@@ -182,64 +316,149 @@ export default function Canvas({
   const clearOverlay = useCallback(() => {
     const overlay = overlayRef.current;
     if (!overlay) return;
-    overlay.getContext("2d")!.clearRect(0, 0, overlay.width, overlay.height);
+    // In lasso mode preserve selection overlay; only clear hover dot
+    if (lassoPhaseRef.current === "idle" || lassoPhaseRef.current === "drawing") {
+      overlay.getContext("2d")!.clearRect(0, 0, overlay.width, overlay.height);
+    }
+  }, []);
+
+  // ─── Push undo snapshot helper ────────────────────────────────────────────
+  const pushHistory = useCallback((strokes: Stroke[]) => {
+    const stack = undoStackRef.current;
+    stack.push(strokes);
+    if (stack.length > MAX_HISTORY + 1) stack.splice(1, stack.length - MAX_HISTORY - 1);
+    redoStackRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
   }, []);
 
   // ─── Pointer event handlers ───────────────────────────────────────────────
   const onPointerDown = useCallback(
     (e: PointerEvent) => {
-      // Allow both stylus and mouse; block finger touch to prevent scroll conflicts
       if (e.pointerType === "touch") return;
       e.preventDefault();
+
+      const pos = getPos(e);
+
+      // ── Lasso tool ────────────────────────────────────────────────────────
+      if (tool === "lasso") {
+        const phase = lassoPhaseRef.current;
+
+        // If there's a selection and user clicks inside bbox → start dragging
+        if (phase === "selected" && selectedIdsRef.current.size > 0) {
+          const sel = getSelectedStrokes();
+          if (sel.length > 0) {
+            const { minX, minY, maxX, maxY } = strokesBBox(sel);
+            const pad = 8;
+            if (
+              pos.x >= minX - pad && pos.x <= maxX + pad &&
+              pos.y >= minY - pad && pos.y <= maxY + pad
+            ) {
+              lassoPhaseRef.current = "dragging";
+              dragStartRef.current  = { x: pos.x, y: pos.y };
+              canvasRef.current!.setPointerCapture(e.pointerId);
+              return;
+            }
+          }
+          // Clicked outside selection — clear and start new lasso
+          clearSelection();
+        }
+
+        // Start drawing lasso path
+        lassoPhaseRef.current  = "drawing";
+        lassoPathRef.current   = [{ x: pos.x, y: pos.y }];
+        canvasRef.current!.setPointerCapture(e.pointerId);
+        return;
+      }
+
+      // ── Drawing tools (pen / highlighter / eraser) ────────────────────────
+      clearSelection();
       clearOverlay();
       isDrawingRef.current = true;
 
-      const pos = getPos(e);
       const baseSize =
         tool === "highlighter" ? size * 4 :
         tool === "eraser"      ? size * 6 :
-                                 size; // pressure applied per-segment in drawStroke
+                                 size;
 
       currentStrokeRef.current = {
-        id: uuid(),
-        tool: tool === "lasso" ? "pen" : tool,
-        color: tool === "eraser" ? "#000000" : color,
-        size: baseSize,
+        id:      uuid(),
+        tool:    tool,
+        color:   tool === "eraser" ? "#000000" : color,
+        size:    baseSize,
         opacity: tool === "highlighter" ? 0.45 : 1,
-        points: [pos],
+        points:  [pos],
       };
 
       canvasRef.current!.setPointerCapture(e.pointerId);
     },
-    [tool, color, size, getPos, clearOverlay]
+    [tool, color, size, getPos, clearSelection, clearOverlay, getSelectedStrokes]
   );
 
   const onPointerMove = useCallback(
     (e: PointerEvent) => {
+      const pos = getPos(e);
+
+      // ── Lasso drawing ────────────────────────────────────────────────────
+      if (tool === "lasso") {
+        if (lassoPhaseRef.current === "drawing") {
+          e.preventDefault();
+          lassoPathRef.current.push({ x: pos.x, y: pos.y });
+          const ov = overlayRef.current!;
+          drawSelectionOverlay(ov.getContext("2d")!, [], lassoPathRef.current, false);
+          return;
+        }
+
+        // ── Drag selected strokes ────────────────────────────────────────
+        if (lassoPhaseRef.current === "dragging" && dragStartRef.current) {
+          e.preventDefault();
+          const dx = pos.x - dragStartRef.current.x;
+          const dy = pos.y - dragStartRef.current.y;
+          dragStartRef.current = { x: pos.x, y: pos.y };
+
+          // Move selected strokes
+          const ids = selectedIdsRef.current;
+          strokesRef.current = strokesRef.current.map(s =>
+            ids.has(s.id)
+              ? { ...s, points: s.points.map(p => ({ ...p, x: p.x + dx, y: p.y + dy })) }
+              : s
+          );
+
+          // Redraw main canvas
+          redrawAll(canvasRef.current!.getContext("2d")!, strokesRef.current);
+
+          // Update overlay
+          const sel = getSelectedStrokes();
+          drawSelectionOverlay(overlayRef.current!.getContext("2d")!, sel, null, true);
+          return;
+        }
+
+        // Hover in lasso idle/selected phase
+        onPointerHover(e);
+        return;
+      }
+
+      // ── Drawing stroke ───────────────────────────────────────────────────
       if (!isDrawingRef.current || !currentStrokeRef.current) {
-        // Not drawing — show hover cursor
         onPointerHover(e);
         return;
       }
       e.preventDefault();
 
-      const pos = getPos(e);
-      const pts = currentStrokeRef.current.points;
-      pts.push(pos);
-
-      // Incremental render: draw only the latest segment for performance
+      currentStrokeRef.current.points.push(pos);
+      const pts    = currentStrokeRef.current.points;
       if (pts.length >= 2) {
         const canvas = canvasRef.current!;
-        const ctx = canvas.getContext("2d")!;
+        const ctx    = canvas.getContext("2d")!;
         const p0 = pts[pts.length - 2];
         const p1 = pts[pts.length - 1];
         const avgPressure = ((p0.pressure ?? 0.5) + (p1.pressure ?? 0.5)) / 2;
+        const stroke = currentStrokeRef.current;
 
         ctx.save();
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
+        ctx.lineCap   = "round";
+        ctx.lineJoin  = "round";
 
-        const stroke = currentStrokeRef.current;
         if (stroke.tool === "highlighter") {
           ctx.globalCompositeOperation = "multiply";
           ctx.globalAlpha = 0.45;
@@ -252,7 +471,7 @@ export default function Canvas({
         }
 
         ctx.strokeStyle = stroke.color;
-        ctx.lineWidth = Math.max(0.5, stroke.size * (0.4 + avgPressure * 1.2));
+        ctx.lineWidth   = Math.max(0.5, stroke.size * (0.4 + avgPressure * 1.2));
         ctx.beginPath();
         ctx.moveTo(p0.x, p0.y);
         ctx.lineTo(p1.x, p1.y);
@@ -260,39 +479,66 @@ export default function Canvas({
         ctx.restore();
       }
     },
-    [getPos, onPointerHover]
+    [getPos, onPointerHover, getSelectedStrokes, tool]
   );
 
   const onPointerUp = useCallback(
     (e: PointerEvent) => {
+      const pos = getPos(e);
+
+      // ── Finalize lasso ───────────────────────────────────────────────────
+      if (tool === "lasso") {
+        if (lassoPhaseRef.current === "drawing") {
+          lassoPathRef.current.push({ x: pos.x, y: pos.y });
+          const path = lassoPathRef.current;
+
+          // Detect which strokes are enclosed by the lasso
+          const enclosed = strokesRef.current.filter(s => strokeInLasso(s, path));
+          if (enclosed.length > 0) {
+            selectedIdsRef.current = new Set(enclosed.map(s => s.id));
+            lassoPhaseRef.current  = "selected";
+            setSelectionCount(enclosed.length);
+          } else {
+            clearSelection();
+          }
+
+          // Redraw overlay with selection box (clear lasso path)
+          const sel = getSelectedStrokes();
+          lassoPathRef.current = [];
+          drawSelectionOverlay(overlayRef.current!.getContext("2d")!, sel, null, false);
+          return;
+        }
+
+        if (lassoPhaseRef.current === "dragging") {
+          lassoPhaseRef.current = "selected";
+          // Commit moved strokes to history
+          pushHistory(strokesRef.current);
+          onStrokesChange(pageNumber, strokesRef.current);
+          const sel = getSelectedStrokes();
+          drawSelectionOverlay(overlayRef.current!.getContext("2d")!, sel, null, false);
+          return;
+        }
+        return;
+      }
+
+      // ── Finalize ink stroke ──────────────────────────────────────────────
       if (!isDrawingRef.current || !currentStrokeRef.current) return;
       isDrawingRef.current = false;
       clearOverlay();
 
       const stroke = currentStrokeRef.current;
       currentStrokeRef.current = null;
-
       if (stroke.points.length < 2) return;
 
       const newStrokes = [...strokesRef.current, stroke];
       strokesRef.current = newStrokes;
+      pushHistory(newStrokes);
 
-      // Push to undo stack; cap history depth to avoid unbounded memory growth
-      const stack = undoStackRef.current;
-      stack.push(newStrokes);
-      if (stack.length > MAX_HISTORY + 1) stack.splice(1, stack.length - MAX_HISTORY - 1);
-
-      redoStackRef.current = [];
-      setCanUndo(true);
-      setCanRedo(false);
-
-      // Full redraw to apply smooth variable-width Bézier rendering
-      const canvas = canvasRef.current!;
-      redrawAll(canvas.getContext("2d")!, newStrokes);
-
+      // Full redraw to apply smooth Bézier rendering
+      redrawAll(canvasRef.current!.getContext("2d")!, newStrokes);
       onStrokesChange(pageNumber, newStrokes);
     },
-    [pageNumber, onStrokesChange, clearOverlay]
+    [getPos, tool, clearSelection, getSelectedStrokes, pushHistory, pageNumber, onStrokesChange, clearOverlay]
   );
 
   // ─── Attach/detach pointer listeners ──────────────────────────────────────
@@ -300,46 +546,64 @@ export default function Canvas({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    canvas.addEventListener("pointerdown", onPointerDown, { passive: false });
-    canvas.addEventListener("pointermove", onPointerMove, { passive: false });
-    canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointerdown",  onPointerDown,  { passive: false });
+    canvas.addEventListener("pointermove",  onPointerMove,  { passive: false });
+    canvas.addEventListener("pointerup",    onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
     canvas.addEventListener("pointerleave", clearOverlay);
 
     return () => {
-      canvas.removeEventListener("pointerdown", onPointerDown);
-      canvas.removeEventListener("pointermove", onPointerMove);
-      canvas.removeEventListener("pointerup", onPointerUp);
+      canvas.removeEventListener("pointerdown",  onPointerDown);
+      canvas.removeEventListener("pointermove",  onPointerMove);
+      canvas.removeEventListener("pointerup",    onPointerUp);
       canvas.removeEventListener("pointercancel", onPointerUp);
       canvas.removeEventListener("pointerleave", clearOverlay);
     };
   }, [onPointerDown, onPointerMove, onPointerUp, clearOverlay]);
 
-  // ─── Keyboard shortcuts (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z) ─────────────────
+  // ─── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.ctrlKey && e.key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
-      if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "Z"))) { e.preventDefault(); redo(); }
+      // Undo / Redo
+      if (e.ctrlKey && e.key === "z" && !e.shiftKey) { e.preventDefault(); undo(); return; }
+      if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "Z"))) { e.preventDefault(); redo(); return; }
+
+      // Delete / Backspace — remove selected strokes
+      if ((e.key === "Delete" || e.key === "Backspace") && lassoPhaseRef.current === "selected") {
+        e.preventDefault();
+        deleteSelected();
+        return;
+      }
+
+      // Ctrl+D — duplicate selected strokes
+      if (e.ctrlKey && e.key === "d" && lassoPhaseRef.current === "selected") {
+        e.preventDefault();
+        duplicateSelected();
+        return;
+      }
+
+      // Escape — clear selection
+      if (e.key === "Escape") {
+        clearSelection();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  // undo/redo are stable plain functions defined below — no deps needed
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [clearSelection]);
 
   // ─── Undo ─────────────────────────────────────────────────────────────────
   function undo() {
     const stack = undoStackRef.current;
-    // Must have more than the seed entry to undo
     if (stack.length <= 1) return;
 
     const popped = stack.pop()!;
     redoStackRef.current.push(popped);
-
     const prev = stack[stack.length - 1];
     strokesRef.current = prev;
     setCanUndo(stack.length > 1);
     setCanRedo(true);
+    clearSelection();
 
     redrawAll(canvasRef.current!.getContext("2d")!, prev);
     onStrokesChange(pageNumber, prev);
@@ -355,6 +619,7 @@ export default function Canvas({
     strokesRef.current = next;
     setCanUndo(true);
     setCanRedo(redoStack.length > 0);
+    clearSelection();
 
     redrawAll(canvasRef.current!.getContext("2d")!, next);
     onStrokesChange(pageNumber, next);
@@ -363,18 +628,47 @@ export default function Canvas({
   // ─── Clear page ───────────────────────────────────────────────────────────
   function clearPage() {
     const newStrokes: Stroke[] = [];
-    undoStackRef.current.push(newStrokes);
-    if (undoStackRef.current.length > MAX_HISTORY + 1)
-      undoStackRef.current.splice(1, undoStackRef.current.length - MAX_HISTORY - 1);
-
-    redoStackRef.current = [];
+    pushHistory(newStrokes);
     strokesRef.current = newStrokes;
-    setCanUndo(true);   // can undo the clear back to previous content
-    setCanRedo(false);
+    clearSelection();
 
     const canvas = canvasRef.current!;
-    const ctx = canvas.getContext("2d")!;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
+    onStrokesChange(pageNumber, newStrokes);
+  }
+
+  // ─── Delete selected strokes ──────────────────────────────────────────────
+  function deleteSelected() {
+    if (selectedIdsRef.current.size === 0) return;
+    const ids = selectedIdsRef.current;
+    const newStrokes = strokesRef.current.filter(s => !ids.has(s.id));
+    strokesRef.current = newStrokes;
+    pushHistory(newStrokes);
+    clearSelection();
+    redrawAll(canvasRef.current!.getContext("2d")!, newStrokes);
+    onStrokesChange(pageNumber, newStrokes);
+  }
+
+  // ─── Duplicate selected strokes ───────────────────────────────────────────
+  function duplicateSelected() {
+    const sel = getSelectedStrokes();
+    if (sel.length === 0) return;
+
+    const dupes = translateStrokes(sel, 16, 16).map(s => ({ ...s, id: uuid() }));
+    const newStrokes = [...strokesRef.current, ...dupes];
+    strokesRef.current = newStrokes;
+    pushHistory(newStrokes);
+
+    // Select the new duplicates
+    selectedIdsRef.current = new Set(dupes.map(s => s.id));
+    lassoPhaseRef.current = "selected";
+    setSelectionCount(dupes.length);
+
+    redrawAll(canvasRef.current!.getContext("2d")!, newStrokes);
+    drawSelectionOverlay(
+      overlayRef.current!.getContext("2d")!,
+      dupes, null, false
+    );
     onStrokesChange(pageNumber, newStrokes);
   }
 
@@ -385,14 +679,11 @@ export default function Canvas({
     paperType === "graph" ? styles.paperGraph :
                             styles.paperBlank;
 
-  const cursorStyle =
-    tool === "eraser" ? "cell" :
-    tool === "lasso"  ? "crosshair" :
-                        "crosshair";
+  const cursorStyle = tool === "eraser" ? "cell" : tool === "lasso" ? "default" : "crosshair";
 
   return (
     <div ref={containerRef} className={`${styles.container} ${paperClass}`}>
-      {/* Drawing canvas */}
+      {/* Main drawing canvas */}
       <canvas
         ref={canvasRef}
         className={styles.canvas}
@@ -400,7 +691,7 @@ export default function Canvas({
         id="main-canvas"
       />
 
-      {/* Hover-cursor overlay (pointer-events: none so it doesn't intercept) */}
+      {/* Overlay: hover cursor + lasso path + selection handles (no pointer events) */}
       <canvas
         ref={overlayRef}
         className={styles.canvas}
@@ -428,6 +719,37 @@ export default function Canvas({
           </div>
 
           <div className={styles.divider} />
+
+          {/* Lasso selection actions (visible when something is selected) */}
+          {selectionCount > 0 && (
+            <>
+              <button
+                className="btn-icon"
+                onClick={duplicateSelected}
+                title={`Duplicate ${selectionCount} stroke${selectionCount > 1 ? "s" : ""} (Ctrl+D)`}
+                id="duplicate-btn"
+                style={{ width: 28, height: 28, color: "var(--accent)" }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <rect x="8" y="8" width="13" height="13" rx="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              </button>
+              <button
+                className="btn-icon"
+                onClick={deleteSelected}
+                title={`Delete ${selectionCount} stroke${selectionCount > 1 ? "s" : ""} (Delete)`}
+                id="delete-selected-btn"
+                style={{ width: 28, height: 28, color: "var(--error)" }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                </svg>
+              </button>
+              <div className={styles.divider} />
+            </>
+          )}
 
           {/* Undo */}
           <button
