@@ -2,9 +2,8 @@
   position: relative;
   flex: 1;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  /* Stacking context for absolute-positioned canvas layers */
+  display: block;
   transition: background var(--duration-normal);
 }
 

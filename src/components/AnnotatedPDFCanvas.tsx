@@ -153,7 +153,7 @@ export default function AnnotatedPDFCanvas({
   }
 
   function drawStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
-    if (!stroke || !stroke.points || stroke.points.length < 2) return;
+    if (!stroke?.points || stroke.points.length < 2) return;
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -166,21 +166,27 @@ export default function AnnotatedPDFCanvas({
       ctx.globalAlpha = 1;
     } else {
       ctx.globalCompositeOperation = "source-over";
-      ctx.globalAlpha = stroke.opacity || 1;
+      ctx.globalAlpha = stroke.opacity ?? 1;
     }
 
     ctx.strokeStyle = stroke.color;
-    ctx.lineWidth = stroke.size;
-    ctx.beginPath();
-    ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
-    for (let i = 1; i < stroke.points.length - 1; i++) {
-      const mx = (stroke.points[i].x + stroke.points[i + 1].x) / 2;
-      const my = (stroke.points[i].y + stroke.points[i + 1].y) / 2;
-      ctx.quadraticCurveTo(stroke.points[i].x, stroke.points[i].y, mx, my);
+    const pts = stroke.points;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i];
+      const p1 = pts[i + 1];
+      const avgPressure = ((p0.pressure ?? 0.5) + (p1.pressure ?? 0.5)) / 2;
+      ctx.lineWidth = Math.max(0.5, stroke.size * (0.4 + avgPressure * 1.2));
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      if (i < pts.length - 2) {
+        const mx = (p1.x + pts[i + 2].x) / 2;
+        const my = (p1.y + pts[i + 2].y) / 2;
+        ctx.quadraticCurveTo(p1.x, p1.y, mx, my);
+      } else {
+        ctx.lineTo(p1.x, p1.y);
+      }
+      ctx.stroke();
     }
-    const last = stroke.points[stroke.points.length - 1];
-    ctx.lineTo(last.x, last.y);
-    ctx.stroke();
     ctx.restore();
   }
 
@@ -190,7 +196,7 @@ export default function AnnotatedPDFCanvas({
     return {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
-      pressure: e.pressure || 0.5,
+      pressure: e.pressure > 0 ? e.pressure : 0.5,
     };
   }, []);
 
@@ -200,18 +206,17 @@ export default function AnnotatedPDFCanvas({
       e.preventDefault();
       isDrawingRef.current = true;
       const pos = getPos(e);
-      const strokeSize =
-        tool === "highlighter"
-          ? size * 4
-          : tool === "eraser"
-          ? size * 6
-          : size * (0.5 + pos.pressure * 1.5);
+      // Store base size; pressure scaling happens per-segment in drawStroke
+      const baseSize =
+        tool === "highlighter" ? size * 4 :
+        tool === "eraser"      ? size * 6 :
+                                 size;
       currentStrokeRef.current = {
         id: uuid(),
         tool: tool === "lasso" ? "pen" : tool,
         color: tool === "eraser" ? "#000" : color,
-        size: strokeSize,
-        opacity: 1,
+        size: baseSize,
+        opacity: tool === "highlighter" ? 0.45 : 1,
         points: [pos],
       };
       drawCanvasRef.current?.setPointerCapture(e.pointerId);
@@ -242,11 +247,15 @@ export default function AnnotatedPDFCanvas({
           ctx.globalCompositeOperation = "source-over";
           ctx.globalAlpha = 1;
         }
-        ctx.strokeStyle = currentStrokeRef.current.color;
-        ctx.lineWidth = currentStrokeRef.current.size;
+        const stroke = currentStrokeRef.current;
+        const p0 = pts[pts.length - 2];
+        const p1 = pts[pts.length - 1];
+        const avgPressure = ((p0.pressure ?? 0.5) + (p1.pressure ?? 0.5)) / 2;
+        ctx.strokeStyle = stroke.color;
+        ctx.lineWidth = Math.max(0.5, stroke.size * (0.4 + avgPressure * 1.2));
         ctx.beginPath();
-        ctx.moveTo(pts[pts.length - 2].x, pts[pts.length - 2].y);
-        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
         ctx.stroke();
         ctx.restore();
       }
