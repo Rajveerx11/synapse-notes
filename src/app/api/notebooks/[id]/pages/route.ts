@@ -29,6 +29,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     const { id } = await params;
     const { page_number, strokes_json, text_content, pdf_url, pdf_page } = await req.json();
 
+    // Verify notebook ownership to prevent IDOR attacks
+    if (session.userId !== "mcp") {
+      const nb = await dbService.getNotebook(id, session.userId);
+      if (!nb) {
+        return NextResponse.json({ error: "Notebook not found or access forbidden" }, { status: 404 });
+      }
+    }
+
     const pageId = await dbService.upsertPage(id, page_number ?? 1, {
       strokes_json,
       text_content,

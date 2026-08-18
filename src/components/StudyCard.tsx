@@ -45,7 +45,7 @@ export default function StudyCard({ card }: Props) {
 
     async function renderDiagram() {
       const mermaid = (await import("mermaid")).default;
-      mermaid.initialize({ startOnLoad: false, theme: "base", securityLevel: "loose" });
+      mermaid.initialize({ startOnLoad: false, theme: "base", securityLevel: "strict" });
       try {
         const id = `mermaid-${card.id}`;
         const { svg } = await mermaid.render(id, card.diagram_data);

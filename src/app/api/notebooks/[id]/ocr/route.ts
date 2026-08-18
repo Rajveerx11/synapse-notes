@@ -23,6 +23,14 @@ export async function POST(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "page_number and ocr_text are required" }, { status: 400 });
     }
 
+    // Verify notebook ownership to prevent IDOR attacks
+    if (session.userId !== "mcp") {
+      const nb = await dbService.getNotebook(id, session.userId);
+      if (!nb) {
+        return NextResponse.json({ error: "Notebook not found or access forbidden" }, { status: 404 });
+      }
+    }
+
     // Upsert page with ocr_text stored in text_content (searchable by existing query)
     await dbService.upsertPage(id, page_number, {
       text_content: ocr_text,

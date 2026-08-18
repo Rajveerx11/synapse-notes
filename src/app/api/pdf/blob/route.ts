@@ -13,9 +13,31 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing blob url" }, { status: 400 });
     }
 
+    // SSRF Defense: Validate URL structure and restrict to trusted storage domains only
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(blobUrl);
+    } catch {
+      return NextResponse.json({ error: "Invalid URL format" }, { status: 400 });
+    }
+
+    if (parsedUrl.protocol !== "https:") {
+      return NextResponse.json({ error: "Only HTTPS URLs are permitted" }, { status: 400 });
+    }
+
+    const host = parsedUrl.hostname.toLowerCase();
+    const isAllowedHost =
+      host.endsWith(".blob.vercel-storage.com") ||
+      host.endsWith(".r2.cloudflarestorage.com") ||
+      (process.env.R2_PUBLIC_DOMAIN && host === new URL(process.env.R2_PUBLIC_DOMAIN).hostname.toLowerCase());
+
+    if (!isAllowedHost) {
+      return NextResponse.json({ error: "Forbidden storage domain" }, { status: 403 });
+    }
+
     const token = process.env.BLOB_READ_WRITE_TOKEN;
     const headers: Record<string, string> = {};
-    if (token && blobUrl.includes("blob.vercel-storage.com")) {
+    if (token && host.endsWith("blob.vercel-storage.com")) {
       headers["Authorization"] = `Bearer ${token}`;
     }
 

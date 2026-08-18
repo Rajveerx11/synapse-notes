@@ -35,8 +35,9 @@ export async function requireSession(req?: NextRequest) {
     const auth = req.headers.get("authorization");
     if (auth?.startsWith("Bearer ")) {
       const token = auth.slice(7);
-      // Allow static API key for MCP server
-      if (token === process.env.SYNAPSE_API_KEY) {
+      // Allow static API key for MCP server only if configured with non-empty secret
+      const configuredKey = process.env.SYNAPSE_API_KEY?.trim();
+      if (configuredKey && token === configuredKey) {
         return { userId: "mcp", username: "mcp-agent" };
       }
       return verifyToken(token);
