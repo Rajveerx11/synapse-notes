@@ -1,0 +1,314 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1350" width="1080" height="1350" style="background:#080c14; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <defs>
+    <!-- Gradients -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1120" />
+      <stop offset="45%" stop-color="#070a12" />
+      <stop offset="100%" stop-color="#04060a" />
+    </linearGradient>
+
+    <linearGradient id="brandGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#8b5cf6" />
+    </linearGradient>
+
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#34d399" />
+    </linearGradient>
+
+    <linearGradient id="amberGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#fbbf24" />
+    </linearGradient>
+
+    <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ec4899" />
+      <stop offset="100%" stop-color="#f43f5e" />
+    </linearGradient>
+
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#131c30" />
+      <stop offset="100%" stop-color="#0d1424" />
+    </linearGradient>
+
+    <!-- Dot Grid Pattern -->
+    <pattern id="dotGrid" x="0" y="0" width="30" height="30" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#1e293b" opacity="0.75" />
+    </pattern>
+
+    <!-- Drop Shadow Filter -->
+    <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="125%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <!-- Background Base & Grid -->
+  <rect width="1080" height="1350" fill="url(#bgGrad)" />
+  <rect width="1080" height="1350" fill="url(#dotGrid)" />
+
+  <!-- Ambient Glows -->
+  <circle cx="180" cy="180" r="280" fill="#6366f1" opacity="0.14" filter="blur(80px)" />
+  <circle cx="900" cy="500" r="300" fill="#06b6d4" opacity="0.12" filter="blur(90px)" />
+  <circle cx="200" cy="1000" r="260" fill="#8b5cf6" opacity="0.1" filter="blur(80px)" />
+
+  <!-- ── HEADER ────────────────────────────────────────────────── -->
+  <g transform="translate(60, 55)">
+    <!-- Pill Badge -->
+    <rect x="0" y="0" width="220" height="34" rx="17" fill="#6366f1" fill-opacity="0.15" stroke="#6366f1" stroke-opacity="0.4" stroke-width="1" />
+    <circle cx="16" cy="17" r="4" fill="#22c55e" />
+    <text x="30" y="22" font-size="13" font-weight="700" fill="#a5b4fc" letter-spacing="1.2">MAJOR UPDATE · v0.3</text>
+
+    <!-- Main Headline -->
+    <text x="0" y="76" font-size="44" font-weight="800" fill="#ffffff" letter-spacing="-1">
+      Synapse Notes <tspan fill="url(#brandGrad)">Evolution</tspan>
+    </text>
+    <text x="0" y="108" font-size="18" font-weight="400" fill="#94a3b8">
+      Code-First Handwriting · AI Lecture Synthesis · Real-Time Collaboration
+    </text>
+  </g>
+
+  <!-- ── HERO SPOTLIGHT: CODE NOTE-TAKING MODE ───────────────────── -->
+  <g transform="translate(60, 205)">
+    <!-- Card Container -->
+    <rect width="960" height="340" rx="18" fill="url(#cardGrad)" stroke="#6366f1" stroke-opacity="0.4" stroke-width="1.5" filter="url(#cardShadow)" />
+
+    <!-- Top Label -->
+    <rect x="24" y="20" width="130" height="26" rx="6" fill="#6366f1" fill-opacity="0.2" />
+    <text x="34" y="37" font-size="11" font-weight="700" fill="#a5b4fc" letter-spacing="1">NEW FEATURE</text>
+    <text x="166" y="38" font-size="20" font-weight="700" fill="#ffffff">Code-First Note-Taking Mode</text>
+
+    <!-- Sub-description -->
+    <text x="24" y="66" font-size="14" fill="#94a3b8">
+      Type or paste code snippets with syntax highlighting, then write line-by-line handwritten notes with S-Pen.
+    </text>
+
+    <!-- Mockup Dual Pane Split -->
+    <!-- Left Pane (Code) -->
+    <g transform="translate(24, 86)">
+      <rect width="520" height="224" rx="10" fill="#0b0f19" stroke="#1e293b" stroke-width="1" />
+
+      <!-- Window header -->
+      <circle cx="18" cy="16" r="4.5" fill="#ef4444" opacity="0.8" />
+      <circle cx="32" cy="16" r="4.5" fill="#f59e0b" opacity="0.8" />
+      <circle cx="46" cy="16" r="4.5" fill="#22c55e" opacity="0.8" />
+      <text x="65" y="20" font-size="11" font-family="monospace" fill="#64748b">train_epoch.py · Python</text>
+
+      <!-- Code Lines -->
+      <g transform="translate(16, 46)" font-family="monospace" font-size="12.5" line-height="24">
+        <!-- Line 1 -->
+        <text x="0" y="16" fill="#475569">01</text>
+        <text x="30" y="16" fill="#ec4899" font-weight="bold">def</text>
+        <text x="60" y="16" fill="#60a5fa"> train_step</text>
+        <text x="140" y="16" fill="#f8fafc">(model, batch):</text>
+
+        <!-- Line 2 -->
+        <text x="0" y="44" fill="#475569">02</text>
+        <text x="45" y="44" fill="#f8fafc">model.</text>
+        <text x="90" y="44" fill="#60a5fa">train</text>
+        <text x="125" y="44" fill="#f8fafc">()</text>
+
+        <!-- Line 3 -->
+        <text x="0" y="72" fill="#475569">03</text>
+        <text x="45" y="72" fill="#f8fafc">loss = </text>
+        <text x="95" y="72" fill="#60a5fa">criterion</text>
+        <text x="165" y="72" fill="#f8fafc">(pred, y)</text>
+
+        <!-- Line 4 -->
+        <text x="0" y="100" fill="#475569">04</text>
+        <text x="45" y="100" fill="#f8fafc">loss.</text>
+        <text x="80" y="100" fill="#60a5fa">backward</text>
+        <text x="140" y="100" fill="#f8fafc">()</text>
+
+        <!-- Line 5 -->
+        <text x="0" y="128" fill="#475569">05</text>
+        <text x="45" y="128" fill="#f8fafc">optimizer.</text>
+        <text x="120" y="128" fill="#60a5fa">step</text>
+        <text x="150" y="128" fill="#f8fafc">()</text>
+      </g>
+    </g>
+
+    <!-- Right Pane (Line-Anchored Margin Notes) -->
+    <g transform="translate(560, 86)">
+      <rect width="376" height="224" rx="10" fill="#0b0f19" stroke="#1e293b" stroke-width="1" />
+      <text x="16" y="20" font-size="11" font-weight="700" fill="#a5b4fc" letter-spacing="0.5">LINE-ANCHORED MARGIN INK</text>
+
+      <!-- Ruled lines with handwritten notes -->
+      <g transform="translate(16, 42)">
+        <!-- Row 1 -->
+        <line x1="0" y1="20" x2="344" y2="20" stroke="#1e293b" stroke-dasharray="3,3" />
+        <text x="0" y="14" font-size="10" font-family="monospace" fill="#475569">L1</text>
+        <text x="30" y="14" font-size="12" font-weight="500" fill="#38bdf8" font-style="italic">Receives batch (X, y)</text>
+
+        <!-- Row 2 -->
+        <line x1="0" y1="48" x2="344" y2="48" stroke="#1e293b" stroke-dasharray="3,3" />
+        <text x="0" y="42" font-size="10" font-family="monospace" fill="#475569">L2</text>
+        <text x="30" y="42" font-size="12" font-weight="500" fill="#34d399" font-style="italic">Enables Dropout &amp; BatchNorm</text>
+
+        <!-- Row 3 -->
+        <line x1="0" y1="76" x2="344" y2="76" stroke="#1e293b" stroke-dasharray="3,3" />
+        <text x="0" y="70" font-size="10" font-family="monospace" fill="#475569">L3</text>
+        <text x="30" y="70" font-size="12" font-weight="500" fill="#fbbf24" font-style="italic">CrossEntropy computation</text>
+
+        <!-- Row 4 -->
+        <line x1="0" y1="104" x2="344" y2="104" stroke="#1e293b" stroke-dasharray="3,3" />
+        <text x="0" y="98" font-size="10" font-family="monospace" fill="#475569">L4</text>
+        <text x="30" y="98" font-size="12" font-weight="500" fill="#f472b6" font-style="italic">Auto-grad backprop pass</text>
+
+        <!-- Row 5 -->
+        <line x1="0" y1="132" x2="344" y2="132" stroke="#1e293b" stroke-dasharray="3,3" />
+        <text x="0" y="126" font-size="10" font-family="monospace" fill="#475569">L5</text>
+        <text x="30" y="126" font-size="12" font-weight="500" fill="#a78bfa" font-style="italic">SGD / Adam weight update</text>
+      </g>
+
+      <!-- Dynamic shift indicator -->
+      <g transform="translate(16, 192)">
+        <rect width="344" height="24" rx="5" fill="#1e1e2e" />
+        <text x="10" y="16" font-size="10.5" fill="#94a3b8">⚓ Adding/removing code shifts ink annotations automatically</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ── 4 KEY PILLARS GRID ────────────────────────────────────── -->
+  <g transform="translate(60, 565)">
+
+    <!-- PILLAR 1: AI LECTURE SYNTHESIS -->
+    <g transform="translate(0, 0)">
+      <rect width="465" height="195" rx="14" fill="url(#cardGrad)" stroke="#1e293b" stroke-width="1.5" filter="url(#cardShadow)" />
+      <circle cx="36" cy="36" r="16" fill="#6366f1" fill-opacity="0.15" />
+      <text x="29" y="42" font-size="16">✨</text>
+      <text x="64" y="41" font-size="17" font-weight="700" fill="#ffffff">AI Lecture Synthesis</text>
+
+      <text x="24" y="80" font-size="13" fill="#94a3b8" line-height="20">
+        Combined analysis of handwritten ink, PDF slides,
+      </text>
+      <text x="24" y="100" font-size="13" fill="#94a3b8">
+        and code snippets to extract key concepts,
+      </text>
+      <text x="24" y="120" font-size="13" fill="#94a3b8">
+        definitions, and exam study questions.
+      </text>
+
+      <rect x="24" y="145" width="220" height="28" rx="6" fill="#6366f1" fill-opacity="0.2" />
+      <text x="34" y="164" font-size="11.5" font-weight="600" fill="#a5b4fc">→ 1-Click Flashcard Deck Export</text>
+    </g>
+
+    <!-- PILLAR 2: REAL-TIME COLLABORATION -->
+    <g transform="translate(495, 0)">
+      <rect width="465" height="195" rx="14" fill="url(#cardGrad)" stroke="#1e293b" stroke-width="1.5" filter="url(#cardShadow)" />
+      <circle cx="36" cy="36" r="16" fill="#10b981" fill-opacity="0.15" />
+      <text x="29" y="42" font-size="16">👥</text>
+      <text x="64" y="41" font-size="17" font-weight="700" fill="#ffffff">Real-Time Collaboration</text>
+
+      <text x="24" y="80" font-size="13" fill="#94a3b8">
+        Multi-user room sync with live presence avatars,
+      </text>
+      <text x="24" y="100" font-size="13" fill="#94a3b8">
+        active collaborator counts, and instant stroke
+      </text>
+      <text x="24" y="120" font-size="13" fill="#94a3b8">
+        delta broadcasting across active tabs &amp; devices.
+      </text>
+
+      <rect x="24" y="145" width="205" height="28" rx="6" fill="#10b981" fill-opacity="0.2" />
+      <text x="34" y="164" font-size="11.5" font-weight="600" fill="#34d399">● Live Presence &amp; Stroke Sync</text>
+    </g>
+
+    <!-- PILLAR 3: ENHANCED MCP SERVER v2.0 -->
+    <g transform="translate(0, 215)">
+      <rect width="465" height="195" rx="14" fill="url(#cardGrad)" stroke="#1e293b" stroke-width="1.5" filter="url(#cardShadow)" />
+      <circle cx="36" cy="36" r="16" fill="#06b6d4" fill-opacity="0.15" />
+      <text x="29" y="42" font-size="16">⚡</text>
+      <text x="64" y="41" font-size="17" font-weight="700" fill="#ffffff">MCP Server v2.0 (9 Tools)</text>
+
+      <text x="24" y="80" font-size="13" fill="#94a3b8">
+        Empower AI agents (Codex, Claude, Antigravity)
+      </text>
+      <text x="24" y="100" font-size="13" fill="#94a3b8">
+        to create notebooks, search OCR text, annotate
+      </text>
+      <text x="24" y="120" font-size="13" fill="#94a3b8">
+        slides, summarize pages, and manage cards.
+      </text>
+
+      <rect x="24" y="145" width="230" height="28" rx="6" fill="#06b6d4" fill-opacity="0.2" />
+      <text x="34" y="164" font-size="11.5" font-weight="600" fill="#38bdf8">⚡ Full Agentic Tooling Suite</text>
+    </g>
+
+    <!-- PILLAR 4: TAGS, FOLDERS & INFINITE SCROLL -->
+    <g transform="translate(495, 215)">
+      <rect width="465" height="195" rx="14" fill="url(#cardGrad)" stroke="#1e293b" stroke-width="1.5" filter="url(#cardShadow)" />
+      <circle cx="36" cy="36" r="16" fill="#f59e0b" fill-opacity="0.15" />
+      <text x="29" y="42" font-size="16">📁</text>
+      <text x="64" y="41" font-size="17" font-weight="700" fill="#ffffff">Tags, Folders &amp; Infinite Canvas</text>
+
+      <text x="24" y="80" font-size="13" fill="#94a3b8">
+        Structured taxonomy with color-coded tags,
+      </text>
+      <text x="24" y="100" font-size="13" fill="#94a3b8">
+        folder hierarchy, instant search, and memory-safe
+      </text>
+      <text x="24" y="120" font-size="13" fill="#94a3b8">
+        virtualized continuous scrolling.
+      </text>
+
+      <rect x="24" y="145" width="220" height="28" rx="6" fill="#f59e0b" fill-opacity="0.2" />
+      <text x="34" y="164" font-size="11.5" font-weight="600" fill="#fbbf24">🏷️ Color Taxonomy &amp; Smart Search</text>
+    </g>
+  </g>
+
+  <!-- ── STATS / TECH BAR ──────────────────────────────────────── -->
+  <g transform="translate(60, 995)">
+    <rect width="960" height="120" rx="14" fill="#0b0f19" stroke="#1e293b" stroke-width="1.5" />
+
+    <!-- Stat 1 -->
+    <g transform="translate(40, 30)">
+      <text x="0" y="32" font-size="34" font-weight="800" fill="url(#brandGrad)">10+</text>
+      <text x="0" y="58" font-size="13" font-weight="600" fill="#94a3b8">Languages Highlighted</text>
+      <text x="0" y="74" font-size="11" fill="#64748b">Python, TS, C++, Rust, Go...</text>
+    </g>
+
+    <!-- Divider -->
+    <line x1="260" y1="20" x2="260" y2="100" stroke="#1e293b" />
+
+    <!-- Stat 2 -->
+    <g transform="translate(300, 30)">
+      <text x="0" y="32" font-size="34" font-weight="800" fill="url(#cyanGrad)">9 Tools</text>
+      <text x="0" y="58" font-size="13" font-weight="600" fill="#94a3b8">MCP Agent Protocol</text>
+      <text x="0" y="74" font-size="11" fill="#64748b">Claude Code &amp; Codex native</text>
+    </g>
+
+    <!-- Divider -->
+    <line x1="510" y1="20" x2="510" y2="100" stroke="#1e293b" />
+
+    <!-- Stat 3 -->
+    <g transform="translate(550, 30)">
+      <text x="0" y="32" font-size="34" font-weight="800" fill="url(#emeraldGrad)">44px</text>
+      <text x="0" y="58" font-size="13" font-weight="600" fill="#94a3b8">WCAG Touch Targets</text>
+      <text x="0" y="74" font-size="11" fill="#64748b">Tablet &amp; S-Pen optimized</text>
+    </g>
+
+    <!-- Divider -->
+    <line x1="740" y1="20" x2="740" y2="100" stroke="#1e293b" />
+
+    <!-- Stat 4 -->
+    <g transform="translate(780, 30)">
+      <text x="0" y="32" font-size="34" font-weight="800" fill="url(#amberGrad)">E2E</text>
+      <text x="0" y="58" font-size="13" font-weight="600" fill="#94a3b8">Playwright Tested</text>
+      <text x="0" y="74" font-size="11" fill="#64748b">100% core flow coverage</text>
+    </g>
+  </g>
+
+  <!-- ── FOOTER ────────────────────────────────────────────────── -->
+  <g transform="translate(60, 1260)">
+    <line x1="0" y1="0" x2="960" y2="0" stroke="#1e293b" />
+    <text x="0" y="35" font-size="14" font-weight="700" fill="#f8fafc">Synapse Notes</text>
+    <text x="115" y="35" font-size="13" fill="#64748b">· Open-Source Agentic Note-Taking for Developers &amp; Students</text>
+    <text x="960" y="35" font-size="13" font-weight="600" fill="#a5b4fc" text-anchor="end">github.com/Rajveerx11/synapse-notes</text>
+  </g>
+</svg>
