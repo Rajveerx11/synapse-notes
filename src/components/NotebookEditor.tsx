@@ -3,6 +3,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Notebook, Page, AiCard, Stroke } from "@/lib/types";
 import Canvas from "./Canvas";
+import InfiniteCanvas from "./InfiniteCanvas";
 import Toolbar from "./Toolbar";
 import AnnotatedPDFCanvas from "./AnnotatedPDFCanvas";
 import StudyCard from "./StudyCard";
@@ -10,6 +11,10 @@ import ThemeToggle from "./ThemeToggle";
 import PDFExportModal from "./PDFExportModal";
 import OcrPanel from "./OcrPanel";
 import FlashcardReviewModal from "./FlashcardReviewModal";
+import LectureSummaryPanel from "./LectureSummaryPanel";
+import LiveCollaborators from "./LiveCollaborators";
+import { CollaboratorPeer, LiveBroadcastMessage } from "@/lib/collaboration";
+import { v4 as uuid } from "uuid";
 import {
   getActiveCanvasSnapshot,
   exportCanvasToImage,
@@ -64,11 +69,95 @@ export default function NotebookEditor({
   // Panel & PDF state with persistent restoration
   const [showCards, setShowCards] = useState(false);
   const [showOcr,   setShowOcr]   = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [infiniteMode, setInfiniteMode] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(initialPdfUrl);
   const [showPDF, setShowPDF] = useState<boolean>(!!initialPdfUrl);
   const [cards, setCards] = useState<AiCard[]>(initialCards);
   const [isOnline, setIsOnline] = useState(true);
+  const [activePeers, setActivePeers] = useState<CollaboratorPeer[]>([]);
+
+  // Unique client session ID for peer tracking
+  const clientIdRef = useRef<string>("");
+  useEffect(() => {
+    if (!clientIdRef.current) {
+      clientIdRef.current = `client_${uuid().slice(0, 8)}`;
+    }
+  }, []);
+
+  // Last timestamp for live event sync
+  const lastSyncRef = useRef<number>(Date.now());
+
+  // Real-time peer sync and stroke delta listening loop
+  useEffect(() => {
+    if (typeof window === "undefined" || !isOnline) return;
+
+    let isMounted = true;
+    const interval = setInterval(async () => {
+      try {
+        const cId = clientIdRef.current;
+        if (!cId) return;
+
+        const res = await fetch(
+          `/api/notebooks/${notebook.id}/live?since=${lastSyncRef.current}&clientId=${cId}`
+        );
+        if (!res.ok || !isMounted) return;
+
+        const json = await res.json();
+        if (json.data) {
+          const { events, activePeers: peers, timestamp } = json.data as {
+            events: LiveBroadcastMessage[];
+            activePeers: CollaboratorPeer[];
+            timestamp: number;
+          };
+
+          lastSyncRef.current = timestamp;
+          setActivePeers(peers || []);
+
+          // Apply remote stroke events to pages
+          if (events && events.length > 0) {
+            for (const ev of events) {
+              if (ev.clientId === cId) continue; // Skip own broadcast
+
+              if (ev.type === "stroke_added" && ev.payload?.stroke && ev.payload?.pageNumber) {
+                const targetPage = ev.payload.pageNumber;
+                const newStroke = ev.payload.stroke;
+
+                setPages(prev => {
+                  return prev.map(p => {
+                    if (p.page_number !== targetPage) return p;
+                    const existingStrokes: Stroke[] = p.strokes_json ? JSON.parse(p.strokes_json) : [];
+                    if (existingStrokes.some(s => s.id === newStroke.id)) return p; // Already merged
+                    return {
+                      ...p,
+                      strokes_json: JSON.stringify([...existingStrokes, newStroke]),
+                    };
+                  });
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Silently retry on next tick
+      }
+    }, 2500);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      // Graceful leave broadcast
+      if (clientIdRef.current) {
+        fetch(`/api/notebooks/${notebook.id}/live`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "leave", clientId: clientIdRef.current }),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    };
+  }, [notebook.id, isOnline]);
 
   // Track online/offline status
   useEffect(() => {
@@ -211,6 +300,21 @@ export default function NotebookEditor({
         persistLocally(updated);
         return updated;
       });
+
+      // Broadcast latest stroke to real-time room
+      if (rawStrokes.length > 0 && clientIdRef.current && typeof window !== "undefined" && navigator.onLine) {
+        const latestStroke = rawStrokes[rawStrokes.length - 1];
+        fetch(`/api/notebooks/${notebook.id}/live`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "stroke",
+            clientId: clientIdRef.current,
+            pageNumber: pageNo,
+            stroke: latestStroke,
+          }),
+        }).catch(() => {});
+      }
 
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(async () => {
@@ -519,6 +623,22 @@ export default function NotebookEditor({
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6" /></svg>
             </button>
           </div>
+
+          {/* Infinite scroll mode toggle */}
+          {!showPDF && (
+            <button
+              className={`btn-icon ${infiniteMode ? "active" : ""}`}
+              onClick={() => setInfiniteMode(m => !m)}
+              title={infiniteMode ? "Single-page mode" : "Infinite scroll mode"}
+              id="infinite-mode-btn"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="5" rx="1" />
+                <rect x="3" y="10" width="18" height="5" rx="1" opacity="0.5" />
+                <rect x="3" y="17" width="18" height="5" rx="1" opacity="0.25" />
+              </svg>
+            </button>
+          )}
         </div>
 
         <div className={styles.topRight}>
@@ -605,6 +725,17 @@ export default function NotebookEditor({
             </svg>
             {cards.length > 0 && <span className={styles.cardBadge}>{cards.length}</span>}
           </button>
+          <button
+            className={`btn-icon ${showSummary ? "active" : ""}`}
+            onClick={() => { setShowSummary(s => !s); setShowOcr(false); setShowCards(false); }}
+            title="AI Lecture Summary"
+            id="summary-toggle-btn"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            </svg>
+          </button>
+          <LiveCollaborators peers={activePeers} currentClientId={clientIdRef.current} />
           <ThemeToggle />
           <span className={styles.username}>{username}</span>
         </div>
@@ -644,6 +775,27 @@ export default function NotebookEditor({
                 persistLocally(pages, notebook.title, url, true);
               }}
               onClose={() => handleTogglePdf(false)}
+            />
+          ) : infiniteMode ? (
+            <InfiniteCanvas
+              notebookId={notebook.id}
+              pages={pages.length > 0 ? pages : [{
+                id: "p-1",
+                notebook_id: notebook.id,
+                page_number: 1,
+                strokes_json: "[]",
+                text_content: "",
+                pdf_url: null,
+                pdf_page: null,
+                updated_at: Math.floor(Date.now() / 1000),
+              }]}
+              currentPage={currentPage}
+              tool={tool}
+              color={color}
+              size={size}
+              onStrokesChange={handleStrokeSave}
+              onPageChange={setCurrentPage}
+              onAddPage={() => setCurrentPage(p => p + 1)}
             />
           ) : (
             <Canvas
@@ -706,6 +858,31 @@ export default function NotebookEditor({
             pageNumber={currentPage}
             onSaveText={handleOcrSave}
             onClose={() => setShowOcr(false)}
+          />
+        )}
+
+        {/* Right — AI Lecture Summary Panel */}
+        {showSummary && (
+          <LectureSummaryPanel
+            notebookId={notebook.id}
+            pageNumber={currentPage}
+            ocrText={currentPageData?.text_content || ""}
+            onSaveCard={async (title: string, content: string) => {
+              try {
+                const pageId = currentPageData?.id || `p-${currentPage}`;
+                const res = await fetch(`/api/notebooks/${notebook.id}/cards`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ pageId, title, content, diagramType: "none", diagramData: "" }),
+                });
+                const json = await res.json();
+                if (res.ok && json.data) {
+                  setCards(prev => [json.data, ...prev]);
+                }
+              } catch (e) {
+                console.error("Failed to save card:", e);
+              }
+            }}
           />
         )}
       </div>

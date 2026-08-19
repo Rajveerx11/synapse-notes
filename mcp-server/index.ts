@@ -1,29 +1,20 @@
 #!/usr/bin/env node
 /**
- * Synapse Notes — MCP Server
+ * Synapse Notes — MCP Server v2.0
  *
- * Exposes 4 tools to Claude Code, Codex, and Antigravity:
- *   1. list_notebooks        — List all notebooks
- *   2. get_page_content      — Get full content of a page
- *   3. search_notes          — Search across all notes
- *   4. insert_ai_study_card  — Write a study card to a page
+ * 9 tools for Claude Code, Codex, and Antigravity:
+ *   1.  list_notebooks          — List all notebooks
+ *   2.  get_page_content        — Get full content of a page
+ *   3.  search_notes            — Full-text search across all notes
+ *   4.  insert_ai_study_card    — Write a study card to a page
+ *   5.  create_notebook         — Create a new notebook
+ *   6.  delete_study_card       — Delete a study card by ID
+ *   7.  annotate_page           — Add a highlight/underline/sticky annotation to a PDF page
+ *   8.  get_notebook_summary    — Get AI lecture summary for a notebook page
+ *   9.  list_lecture_summaries  — List all saved AI summaries for a notebook
  *
  * Usage:
  *   SYNAPSE_API_KEY=your_key SYNAPSE_BASE_URL=https://your-app.vercel.app node index.js
- *
- * Add to claude_desktop_config.json:
- *   {
- *     "mcpServers": {
- *       "synapse-notes": {
- *         "command": "node",
- *         "args": ["/path/to/mcp-server/index.js"],
- *         "env": {
- *           "SYNAPSE_API_KEY": "your_key",
- *           "SYNAPSE_BASE_URL": "http://localhost:3000"
- *         }
- *       }
- *     }
- *   }
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -57,7 +48,7 @@ async function apiRequest(path: string, options?: RequestInit) {
 
 const server = new McpServer({
   name: "synapse-notes",
-  version: "1.0.0",
+  version: "2.0.0",
 });
 
 // ── Tool 1: list_notebooks ──────────────────────────────────────────
@@ -140,7 +131,7 @@ server.tool(
 // ── Tool 4: insert_ai_study_card ────────────────────────────────────
 server.tool(
   "insert_ai_study_card",
-  "Insert an AI-generated study card directly onto a notebook page. The card supports markdown, LaTeX math ($ and $$), and Mermaid diagrams.",
+  "Insert an AI-generated study card directly onto a notebook page. Supports markdown, LaTeX math ($ and $$), and Mermaid diagrams.",
   {
     notebook_id: z.string().describe("The ID of the target notebook"),
     page_number: z.number().int().min(1).describe("The page number to add the card to (1-based)"),
@@ -180,7 +171,145 @@ server.tool(
   }
 );
 
+// ── Tool 5: create_notebook ──────────────────────────────────────────
+server.tool(
+  "create_notebook",
+  "Create a new notebook in Synapse Notes with a title and optional subject.",
+  {
+    title: z.string().min(1).describe("Notebook title (e.g. 'Machine Learning Lecture 3')"),
+    subject: z.string().optional().default("").describe("Subject or course name (e.g. 'CS229 Stanford')"),
+  },
+  async ({ title, subject }) => {
+    const { data } = await apiRequest("/api/notebooks", {
+      method: "POST",
+      body: JSON.stringify({ title, subject }),
+    });
+    return {
+      content: [
+        {
+          type: "text",
+          text: `✅ Notebook created!\n${JSON.stringify(data, null, 2)}`,
+        },
+      ],
+    };
+  }
+);
+
+// ── Tool 6: delete_study_card ────────────────────────────────────────
+server.tool(
+  "delete_study_card",
+  "Delete a study card by its ID from a notebook page.",
+  {
+    notebook_id: z.string().describe("The ID of the notebook"),
+    card_id: z.string().describe("The ID of the study card to delete"),
+  },
+  async ({ notebook_id, card_id }) => {
+    await apiRequest(`/api/notebooks/${notebook_id}/cards/${card_id}`, {
+      method: "DELETE",
+    });
+    return {
+      content: [{ type: "text", text: `✅ Study card ${card_id} deleted.` }],
+    };
+  }
+);
+
+// ── Tool 7: annotate_page ─────────────────────────────────────────────
+server.tool(
+  "annotate_page",
+  "Add a highlight, underline, or sticky note annotation to a PDF page in a notebook.",
+  {
+    notebook_id: z.string().describe("The ID of the notebook"),
+    page_number: z.number().int().min(1).describe("Page number (1-based)"),
+    type: z.enum(["highlight", "underline", "sticky"]).describe("Type of annotation"),
+    x: z.number().describe("X position as fraction of canvas width (0-1)"),
+    y: z.number().describe("Y position as fraction of canvas height (0-1)"),
+    width: z.number().describe("Width as fraction of canvas width (0-1)"),
+    height: z.number().describe("Height as fraction of canvas height (0-1)"),
+    color: z.string().optional().default("#fde047").describe("Hex color for the annotation"),
+    text: z.string().optional().default("").describe("Text label or sticky note content"),
+  },
+  async ({ notebook_id, page_number, type, x, y, width, height, color, text }) => {
+    const { data } = await apiRequest(`/api/notebooks/${notebook_id}/annotations`, {
+      method: "POST",
+      body: JSON.stringify({ page_number, type, x, y, width, height, color, text }),
+    });
+    return {
+      content: [
+        {
+          type: "text",
+          text: `✅ Annotation added!\n${JSON.stringify(data, null, 2)}`,
+        },
+      ],
+    };
+  }
+);
+
+// ── Tool 8: get_notebook_summary ─────────────────────────────────────
+server.tool(
+  "get_notebook_summary",
+  "Trigger or retrieve an AI lecture summary for a notebook page. Returns key concepts, definitions, and follow-up study questions.",
+  {
+    notebook_id: z.string().describe("The ID of the notebook"),
+    page_number: z.number().int().min(1).describe("Page number to summarize (1-based)"),
+    regenerate: z.boolean().optional().default(false).describe("Force regeneration even if a summary already exists"),
+  },
+  async ({ notebook_id, page_number, regenerate }) => {
+    // Check for existing summary first
+    if (!regenerate) {
+      try {
+        const { data } = await apiRequest(`/api/notebooks/${notebook_id}/summarize?page=${page_number}`);
+        const summaries = data as unknown[];
+        if (Array.isArray(summaries) && summaries.length > 0) {
+          return {
+            content: [{ type: "text", text: JSON.stringify(summaries[0], null, 2) }],
+          };
+        }
+      } catch {
+        // Fall through to generation
+      }
+    }
+
+    // Fetch OCR text from page
+    const { data: fullData } = await apiRequest(`/api/notebooks/${notebook_id}?full=true`);
+    const nb = fullData as { pages: Array<{ page_number: number; text_content: string }> };
+    const page = nb.pages?.find((p) => p.page_number === page_number);
+    const ocrText = page?.text_content || "";
+
+    if (!ocrText) {
+      return {
+        content: [{ type: "text", text: "No text content found on this page. Run OCR first." }],
+      };
+    }
+
+    const { data } = await apiRequest(`/api/notebooks/${notebook_id}/summarize`, {
+      method: "POST",
+      body: JSON.stringify({ page_number, ocr_text: ocrText }),
+    });
+
+    return {
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+    };
+  }
+);
+
+// ── Tool 9: list_lecture_summaries ───────────────────────────────────
+server.tool(
+  "list_lecture_summaries",
+  "List all saved AI lecture summaries for a notebook, optionally filtered by page number.",
+  {
+    notebook_id: z.string().describe("The ID of the notebook"),
+    page_number: z.number().int().min(1).optional().describe("Optional page filter"),
+  },
+  async ({ notebook_id, page_number }) => {
+    const qs = page_number ? `?page=${page_number}` : "";
+    const { data } = await apiRequest(`/api/notebooks/${notebook_id}/summarize${qs}`);
+    return {
+      content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+    };
+  }
+);
+
 // ── Start server ────────────────────────────────────────────────────
 const transport = new StdioServerTransport();
 await server.connect(transport);
-process.stderr.write("Synapse Notes MCP Server running on stdio\n");
+process.stderr.write("Synapse Notes MCP Server v2.0 running on stdio\n");

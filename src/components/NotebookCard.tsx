@@ -20,7 +20,6 @@ const SUBJECT_COLORS: Record<string, string> = {
 
 function subjectColor(subject: string) {
   if (SUBJECT_COLORS[subject]) return SUBJECT_COLORS[subject];
-  // Deterministic color from string
   let hash = 0;
   for (let i = 0; i < subject.length; i++) hash = subject.charCodeAt(i) + ((hash << 5) - hash);
   const hue = ((hash % 360) + 360) % 360;
@@ -30,6 +29,7 @@ function subjectColor(subject: string) {
 export default function NotebookCard({ notebook, formatDate }: Props) {
   const router = useRouter();
   const color = subjectColor(notebook.subject || notebook.title);
+  const tags = notebook.tags || [];
 
   return (
     <button
@@ -47,6 +47,22 @@ export default function NotebookCard({ notebook, formatDate }: Props) {
           )}
         </div>
         <h3 className={styles.title}>{notebook.title}</h3>
+        {tags.length > 0 && (
+          <div className={styles.tags}>
+            {tags.slice(0, 3).map(t => (
+              <span
+                key={t.id}
+                className={styles.tagBadge}
+                style={{ background: `${t.color}22`, color: t.color, borderColor: `${t.color}44` }}
+              >
+                {t.name}
+              </span>
+            ))}
+            {tags.length > 3 && (
+              <span className={styles.tagMore}>+{tags.length - 3}</span>
+            )}
+          </div>
+        )}
         <div className={styles.meta}>
           <span>{notebook.page_count ?? 0} page{notebook.page_count === 1 ? "" : "s"}</span>
           <span>·</span>
@@ -56,3 +72,4 @@ export default function NotebookCard({ notebook, formatDate }: Props) {
     </button>
   );
 }
+

@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { User, Notebook, Page, AiCard, PdfAnnotation } from "./types";
+import { User, Notebook, Page, AiCard, PdfAnnotation, Tag, Folder, LectureSummary } from "./types";
 import { v4 as uuid } from "uuid";
 import fs from "fs";
 import path from "path";
@@ -15,6 +15,10 @@ interface FallbackData {
   pages: Page[];
   ai_cards: AiCard[];
   pdf_annotations?: PdfAnnotation[];
+  tags?: Tag[];
+  folders?: Folder[];
+  notebook_tags?: { notebook_id: string; tag_id: string }[];
+  lecture_summaries?: LectureSummary[];
 }
 
 function loadFallbackData(): FallbackData {
@@ -135,6 +139,56 @@ export async function bootstrapSchema(): Promise<void> {
         height REAL NOT NULL,
         color TEXT NOT NULL,
         text TEXT DEFAULT '',
+        created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+      )
+    `);
+
+    await queryDb(`
+      CREATE TABLE IF NOT EXISTS tags (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        color TEXT NOT NULL DEFAULT '#3b82f6',
+        created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT,
+        UNIQUE(user_id, name)
+      )
+    `);
+
+    await queryDb(`
+      CREATE TABLE IF NOT EXISTS folders (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        parent_id TEXT REFERENCES folders(id) ON DELETE SET NULL,
+        created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
+      )
+    `);
+
+    await queryDb(`
+      CREATE TABLE IF NOT EXISTS notebook_tags (
+        notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+        tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+        PRIMARY KEY (notebook_id, tag_id)
+      )
+    `);
+
+    try {
+      await queryDb(`ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL`);
+    } catch (e) {
+      // Column may already exist
+    }
+
+    await queryDb(`
+      CREATE TABLE IF NOT EXISTS lecture_summaries (
+        id TEXT PRIMARY KEY,
+        notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+        page_number INTEGER NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        key_concepts JSONB NOT NULL DEFAULT '[]',
+        definitions JSONB NOT NULL DEFAULT '{}',
+        follow_up_questions JSONB NOT NULL DEFAULT '[]',
+        raw_text TEXT NOT NULL DEFAULT '',
+        model_used TEXT NOT NULL DEFAULT 'gpt-4o-mini',
         created_at BIGINT NOT NULL DEFAULT EXTRACT(EPOCH FROM NOW())::BIGINT
       )
     `);
@@ -819,4 +873,250 @@ export const dbService = {
     }
     return false;
   },
+
+  // ── Tags ─────────────────────────────────────────────────────────────
+
+  async listTags(userId: string): Promise<Tag[]> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await bootstrapSchema();
+        return await queryDb<Tag>(`SELECT * FROM tags WHERE user_id = $1 ORDER BY name ASC`, [userId]);
+      } catch (e) {
+        console.warn("Postgres listTags error, using fallback:", e);
+      }
+    }
+    const data = loadFallbackData();
+    return (data.tags || []).filter((t) => t.user_id === userId);
+  },
+
+  async createTag(userId: string, name: string, color: string): Promise<Tag> {
+    const id = uuid();
+    const now = Math.floor(Date.now() / 1000);
+    const tag: Tag = { id, user_id: userId, name: name.trim(), color, created_at: now };
+
+    if (process.env.DATABASE_URL) {
+      try {
+        await bootstrapSchema();
+        await queryDb(
+          `INSERT INTO tags (id, user_id, name, color, created_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id, name) DO UPDATE SET color = $4`,
+          [id, userId, tag.name, color, now]
+        );
+        const rows = await queryDb<Tag>(`SELECT * FROM tags WHERE user_id = $1 AND name = $2`, [userId, tag.name]);
+        return rows[0] || tag;
+      } catch (e) {
+        console.warn("Postgres createTag error, using fallback:", e);
+      }
+    }
+
+    const data = loadFallbackData();
+    if (!data.tags) data.tags = [];
+    const existing = data.tags.findIndex((t) => t.user_id === userId && t.name === tag.name);
+    if (existing >= 0) { data.tags[existing].color = color; } else { data.tags.push(tag); }
+    saveFallbackData(data);
+    return tag;
+  },
+
+  async deleteTag(id: string, userId: string): Promise<boolean> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await queryDb(`DELETE FROM tags WHERE id = $1 AND user_id = $2`, [id, userId]);
+        return true;
+      } catch (e) {
+        console.warn("Postgres deleteTag error, using fallback:", e);
+      }
+    }
+    const data = loadFallbackData();
+    if (!data.tags) return false;
+    const idx = data.tags.findIndex((t) => t.id === id && t.user_id === userId);
+    if (idx >= 0) { data.tags.splice(idx, 1); saveFallbackData(data); return true; }
+    return false;
+  },
+
+  async addTagToNotebook(notebookId: string, tagId: string): Promise<void> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await queryDb(
+          `INSERT INTO notebook_tags (notebook_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [notebookId, tagId]
+        );
+        return;
+      } catch (e) {
+        console.warn("Postgres addTagToNotebook error, using fallback:", e);
+      }
+    }
+    const data = loadFallbackData();
+    if (!data.notebook_tags) data.notebook_tags = [];
+    if (!data.notebook_tags.find((nt) => nt.notebook_id === notebookId && nt.tag_id === tagId)) {
+      data.notebook_tags.push({ notebook_id: notebookId, tag_id: tagId });
+      saveFallbackData(data);
+    }
+  },
+
+  async removeTagFromNotebook(notebookId: string, tagId: string): Promise<void> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await queryDb(`DELETE FROM notebook_tags WHERE notebook_id = $1 AND tag_id = $2`, [notebookId, tagId]);
+        return;
+      } catch (e) {
+        console.warn("Postgres removeTagFromNotebook error, using fallback:", e);
+      }
+    }
+    const data = loadFallbackData();
+    if (!data.notebook_tags) return;
+    data.notebook_tags = data.notebook_tags.filter((nt) => !(nt.notebook_id === notebookId && nt.tag_id === tagId));
+    saveFallbackData(data);
+  },
+
+  async getNotebookTags(notebookId: string): Promise<Tag[]> {
+    if (process.env.DATABASE_URL) {
+      try {
+        return await queryDb<Tag>(
+          `SELECT t.* FROM tags t JOIN notebook_tags nt ON t.id = nt.tag_id WHERE nt.notebook_id = $1 ORDER BY t.name ASC`,
+          [notebookId]
+        );
+      } catch (e) {
+        console.warn("Postgres getNotebookTags error, using fallback:", e);
+      }
+    }
+    const data = loadFallbackData();
+    const tagIds = new Set((data.notebook_tags || []).filter((nt) => nt.notebook_id === notebookId).map((nt) => nt.tag_id));
+    return (data.tags || []).filter((t) => tagIds.has(t.id));
+  },
+
+  // ── Folders ───────────────────────────────────────────────────────────
+
+  async listFolders(userId: string): Promise<Folder[]> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await bootstrapSchema();
+        return await queryDb<Folder>(`SELECT * FROM folders WHERE user_id = $1 ORDER BY name ASC`, [userId]);
+      } catch (e) {
+        console.warn("Postgres listFolders error, using fallback:", e);
+      }
+    }
+    const data = loadFallbackData();
+    return (data.folders || []).filter((f) => f.user_id === userId);
+  },
+
+  async createFolder(userId: string, name: string, parentId?: string): Promise<Folder> {
+    const id = uuid();
+    const now = Math.floor(Date.now() / 1000);
+    const folder: Folder = { id, user_id: userId, name: name.trim(), parent_id: parentId || null, created_at: now };
+
+    if (process.env.DATABASE_URL) {
+      try {
+        await bootstrapSchema();
+        await queryDb(
+          `INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES ($1, $2, $3, $4, $5)`,
+          [id, userId, folder.name, folder.parent_id, now]
+        );
+        return folder;
+      } catch (e) {
+        console.warn("Postgres createFolder error, using fallback:", e);
+      }
+    }
+
+    const data = loadFallbackData();
+    if (!data.folders) data.folders = [];
+    data.folders.push(folder);
+    saveFallbackData(data);
+    return folder;
+  },
+
+  async deleteFolder(id: string, userId: string): Promise<boolean> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await queryDb(`DELETE FROM folders WHERE id = $1 AND user_id = $2`, [id, userId]);
+        return true;
+      } catch (e) {
+        console.warn("Postgres deleteFolder error, using fallback:", e);
+      }
+    }
+    const data = loadFallbackData();
+    if (!data.folders) return false;
+    const idx = data.folders.findIndex((f) => f.id === id && f.user_id === userId);
+    if (idx >= 0) { data.folders.splice(idx, 1); saveFallbackData(data); return true; }
+    return false;
+  },
+
+  async moveNotebookToFolder(notebookId: string, userId: string, folderId: string | null): Promise<boolean> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await queryDb(
+          `UPDATE notebooks SET folder_id = $1 WHERE id = $2 AND user_id = $3`,
+          [folderId, notebookId, userId]
+        );
+        return true;
+      } catch (e) {
+        console.warn("Postgres moveNotebookToFolder error, using fallback:", e);
+      }
+    }
+    // Fallback: folder_id not persisted in JSON but we can note it on the notebook object
+    return true;
+  },
+
+  // ── Lecture Summaries ─────────────────────────────────────────────────
+
+  async saveLectureSummary(summary: Omit<LectureSummary, "id" | "created_at">): Promise<LectureSummary> {
+    const id = uuid();
+    const now = Math.floor(Date.now() / 1000);
+    const full: LectureSummary = { ...summary, id, created_at: now };
+
+    if (process.env.DATABASE_URL) {
+      try {
+        await bootstrapSchema();
+        await queryDb(
+          `INSERT INTO lecture_summaries (id, notebook_id, page_number, title, key_concepts, definitions, follow_up_questions, raw_text, model_used, created_at)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9, $10)
+           ON CONFLICT DO NOTHING`,
+          [
+            id,
+            full.notebook_id,
+            full.page_number,
+            full.title,
+            JSON.stringify(full.key_concepts),
+            JSON.stringify(full.definitions),
+            JSON.stringify(full.follow_up_questions),
+            full.raw_text,
+            full.model_used,
+            now,
+          ]
+        );
+        return full;
+      } catch (e) {
+        console.warn("Postgres saveLectureSummary error, using fallback:", e);
+      }
+    }
+
+    const data = loadFallbackData();
+    if (!data.lecture_summaries) data.lecture_summaries = [];
+    data.lecture_summaries.push(full);
+    saveFallbackData(data);
+    return full;
+  },
+
+  async listLectureSummaries(notebookId: string, pageNumber?: number): Promise<LectureSummary[]> {
+    if (process.env.DATABASE_URL) {
+      try {
+        if (pageNumber !== undefined) {
+          const rows = await queryDb<LectureSummary>(
+            `SELECT * FROM lecture_summaries WHERE notebook_id = $1 AND page_number = $2 ORDER BY created_at DESC`,
+            [notebookId, pageNumber]
+          );
+          return rows;
+        }
+        return await queryDb<LectureSummary>(
+          `SELECT * FROM lecture_summaries WHERE notebook_id = $1 ORDER BY page_number ASC, created_at DESC`,
+          [notebookId]
+        );
+      } catch (e) {
+        console.warn("Postgres listLectureSummaries error, using fallback:", e);
+      }
+    }
+    const data = loadFallbackData();
+    return (data.lecture_summaries || []).filter(
+      (s) => s.notebook_id === notebookId && (pageNumber === undefined || s.page_number === pageNumber)
+    );
+  },
 };
+

@@ -13,6 +13,8 @@ export interface Notebook {
   created_at: number;
   updated_at: number;
   page_count?: number;
+  tags?: Tag[];
+  folder_id?: string | null;
 }
 
 export interface Page {
@@ -64,8 +66,36 @@ export interface PdfAnnotation {
   created_at: number;
 }
 
+export interface Tag {
+  id: string;
+  user_id: string;
+  name: string;
+  color: string;
+  created_at: number;
+}
+
+export interface Folder {
+  id: string;
+  user_id: string;
+  name: string;
+  parent_id: string | null;
+  created_at: number;
+}
+
+export interface LectureSummary {
+  id: string;
+  notebook_id: string;
+  page_number: number;
+  title: string;
+  key_concepts: string[];
+  definitions: Record<string, string>;
+  follow_up_questions: string[];
+  raw_text: string;
+  model_used: string;
+  created_at: number;
+}
+
 export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
 }
-

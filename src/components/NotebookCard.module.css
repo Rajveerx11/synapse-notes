@@ -59,6 +59,26 @@
   flex: 1;
 }
 
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tagBadge {
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid transparent;
+}
+
+.tagMore {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding: 2px 4px;
+}
+
 .meta {
   display: flex;
   align-items: center;
@@ -67,3 +87,4 @@
   color: var(--text-muted);
   margin-top: auto;
 }
+
