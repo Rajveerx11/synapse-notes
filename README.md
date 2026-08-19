@@ -83,6 +83,13 @@ Traditional note-taking applications (GoodNotes, Samsung Notes, Notability) trap
   * `search_notes`: Full-text/concept search across your entire notebook library.
   * `insert_ai_study_card`: Injects new study cards with LaTeX equations and Mermaid diagrams directly onto a student's page.
 
+### 5. 🪐 Interactive Jupyter (`.ipynb`) & Python Workspace
+* **Multi-Cell Environment:** Code cells with syntax highlighting & Markdown cells with formatted text and KaTeX $\LaTeX$ math.
+* **In-Browser Python Execution (Pyodide / WebAssembly):** Run Machine Learning and Python code directly client-side without a backend container.
+* **Live Matplotlib / Chart Outputs:** Render and capture plots directly under code cells.
+* **Drawing & Inking Layer:** Write notes, circle code parameters, and draw architectural diagrams directly over cells with pen and highlighter.
+* **Bi-directional Export:** Export directly to `.ipynb` (Jupyter v4), clean Python scripts (`.py`), or annotated PDFs.
+
 ---
 
 ## 🚀 Quickstart Guide

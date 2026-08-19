@@ -3,6 +3,7 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun } from "do
 import PptxGenJS from "pptxgenjs";
 import * as XLSX from "xlsx";
 import { PDFDocument, rgb } from "pdf-lib";
+import { parseIpynb, serializeToIpynb, parsePythonScript, serializeToPythonScript, JupyterCell } from "./ipynbParser";
 
 /**
  * Trigger direct file download in the browser
@@ -545,4 +546,81 @@ export function exportToExcel(
   XLSX.utils.book_append_sheet(wb, wsCards, "AI Study Cards");
 
   XLSX.writeFile(wb, `${cleanTitle}.xlsx`);
+}
+
+/**
+ * 6. Export Notebook to Jupyter Notebook (.ipynb v4)
+ */
+export function exportToJupyter(notebook: Notebook, pages: Page[], currentPageNumber: number = 1) {
+  const cleanTitle = (notebook.title || "Notebook").replace(/[^a-zA-Z0-9_-]/g, "_");
+  
+  // Find current or first page with code/jupyter content
+  const targetPage = pages.find(p => p.page_number === currentPageNumber) || pages[0];
+  const rawCode = targetPage?.code_content || "";
+
+  let cells: JupyterCell[] = [];
+  if (rawCode.trim().startsWith("{") && rawCode.includes('"cells"')) {
+    cells = parseIpynb(rawCode);
+  } else if (rawCode.trim().startsWith("# %%") || rawCode.trim().startsWith("#!/usr/bin/env python")) {
+    cells = parsePythonScript(rawCode);
+  } else if (rawCode.trim()) {
+    cells = [
+      {
+        id: "cell_1",
+        type: "code",
+        source: rawCode,
+        execution_count: null,
+      },
+    ];
+  } else {
+    // Default notebook if empty
+    cells = [
+      {
+        id: "cell_intro",
+        type: "markdown",
+        source: `# ${notebook.title || "Synapse Notebook"}\nExported from Synapse Notes.`,
+        execution_count: null,
+      },
+      {
+        id: "cell_code",
+        type: "code",
+        source: "# Write your Python code here\n",
+        execution_count: null,
+      },
+    ];
+  }
+
+  const ipynbContent = serializeToIpynb(cells, notebook.title);
+  const blob = new Blob([ipynbContent], { type: "application/x-ipynb+json;charset=utf-8" });
+  downloadBlob(blob, `${cleanTitle}.ipynb`);
+}
+
+/**
+ * 7. Export Notebook to clean Python Script (.py)
+ */
+export function exportToPython(notebook: Notebook, pages: Page[], currentPageNumber: number = 1) {
+  const cleanTitle = (notebook.title || "Notebook").replace(/[^a-zA-Z0-9_-]/g, "_");
+  
+  const targetPage = pages.find(p => p.page_number === currentPageNumber) || pages[0];
+  const rawCode = targetPage?.code_content || "";
+
+  let cells: JupyterCell[] = [];
+  if (rawCode.trim().startsWith("{") && rawCode.includes('"cells"')) {
+    cells = parseIpynb(rawCode);
+  } else if (rawCode.trim().startsWith("# %%")) {
+    cells = parsePythonScript(rawCode);
+  } else {
+    cells = [
+      {
+        id: "cell_1",
+        type: "code",
+        source: rawCode || "# Python script",
+        execution_count: null,
+      },
+    ];
+  }
+
+  const pyContent = serializeToPythonScript(cells);
+  const blob = new Blob([pyContent], { type: "text/x-python;charset=utf-8" });
+  downloadBlob(blob, `${cleanTitle}.py`);
 }

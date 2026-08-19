@@ -5,6 +5,7 @@ import { Notebook, Page, AiCard, Stroke } from "@/lib/types";
 import Canvas from "./Canvas";
 import InfiniteCanvas from "./InfiniteCanvas";
 import AnnotatedCodeCanvas from "./AnnotatedCodeCanvas";
+import JupyterNotebookCanvas from "./JupyterNotebookCanvas";
 import { SupportedLanguage } from "@/lib/codeHighlighter";
 import Toolbar from "./Toolbar";
 import AnnotatedPDFCanvas from "./AnnotatedPDFCanvas";
@@ -24,6 +25,8 @@ import {
   exportToWord,
   exportToPowerPoint,
   exportToExcel,
+  exportToJupyter,
+  exportToPython,
 } from "@/lib/exportUtils";
 import { quantizeStrokes } from "@/lib/compressionUtils";
 import { queueStrokeUpdate } from "@/lib/offlineQueue";
@@ -501,7 +504,7 @@ export default function NotebookEditor({
   }
 
   // ── Universal Export Trigger ───────────────────
-  async function triggerExport(type: "pdf" | "png" | "docx" | "pptx" | "xlsx") {
+  async function triggerExport(type: "pdf" | "png" | "docx" | "pptx" | "xlsx" | "ipynb" | "py") {
     setShowExportMenu(false);
 
     if (type === "pdf") {
@@ -521,6 +524,10 @@ export default function NotebookEditor({
         await exportToPowerPoint(notebook, pages, cards, snapshot);
       } else if (type === "xlsx") {
         exportToExcel(notebook, pages, cards);
+      } else if (type === "ipynb") {
+        exportToJupyter(notebook, pages, currentPage);
+      } else if (type === "py") {
+        exportToPython(notebook, pages, currentPage);
       }
     } catch (err) {
       console.error("Export error:", err);
@@ -658,7 +665,7 @@ export default function NotebookEditor({
           <button
             className={`btn-icon ${showCodeMode ? "active" : ""}`}
             onClick={() => { setShowCodeMode(v => !v); setShowPDF(false); }}
-            title="Code Note-Taking Mode (Typed Snippets + Line-Anchored Ink Notes)"
+            title="Jupyter & Python Notebook Workspace (WASM Execution + Inking)"
             id="code-mode-btn"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -794,6 +801,22 @@ export default function NotebookEditor({
                   </div>
                 </button>
 
+                <button className={styles.exportItem} onClick={() => triggerExport("ipynb")} id="export-ipynb-opt">
+                  <span className={styles.exportIcon}>🪐</span>
+                  <div className={styles.exportItemText}>
+                    <span>Jupyter Notebook (.ipynb)</span>
+                    <span className={styles.exportItemSub}>Colab, VS Code & JupyterLab compatible</span>
+                  </div>
+                </button>
+
+                <button className={styles.exportItem} onClick={() => triggerExport("py")} id="export-py-opt">
+                  <span className={styles.exportIcon}>🐍</span>
+                  <div className={styles.exportItemText}>
+                    <span>Python Script (.py)</span>
+                    <span className={styles.exportItemSub}>Clean executable Python file</span>
+                  </div>
+                </button>
+
                 <button className={styles.exportItem} onClick={() => triggerExport("xlsx")} id="export-xlsx-opt">
                   <span className={styles.exportIcon}>📈</span>
                   <div className={styles.exportItemText}>
@@ -869,21 +892,21 @@ export default function NotebookEditor({
               onClose={() => handleTogglePdf(false)}
             />
           ) : showCodeMode ? (
-            <AnnotatedCodeCanvas
-              key={`code-page-${currentPage}`}
+            <JupyterNotebookCanvas
+              key={`jupyter-page-${currentPage}`}
               notebookId={notebook.id}
               pageNumber={currentPage}
-              code={currentPageData?.code_content || "# Type or paste your code snippet here\ndef main():\n    print('Hello Synapse Notes!')\n"}
-              language={(currentPageData?.code_language as SupportedLanguage) || "python"}
-              lineHeightRatio={currentPageData?.code_line_height || 2.4}
+              rawContent={currentPageData?.code_content || ""}
               tool={tool}
               color={color}
               size={size}
               initialStrokes={currentStrokes}
-              onCodeChange={handleCodeChange}
-              onLanguageChange={handleLanguageChange}
-              onLineHeightChange={handleLineHeightChange}
+              onContentChange={(serialized) => {
+                handleCodeChange(serialized);
+                handleLanguageChange("python");
+              }}
               onStrokesChange={handleStrokeSave}
+              isDrawingActive={tool === "pen" || tool === "highlighter" || tool === "eraser" || tool === "lasso"}
             />
           ) : infiniteMode ? (
             <InfiniteCanvas

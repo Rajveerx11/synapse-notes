@@ -289,3 +289,75 @@ High-precision stylus floating points (`245.829140284`) are quantized to 1 decim
 * **Neon PostgreSQL**: Dedicated exclusively to structured user accounts, notebook titles, page metadata, and quantized stroke vectors (512 MB holds over **50,000+ pages**).
 * **Cloudflare R2 (S3-Compatible)**: Handles large lecture slide decks and annotated vector PDF exports with **10 GB free monthly storage** and **zero egress bandwidth charges**.
 
+---
+
+## 7. Interactive Jupyter & Python Notebook Engine
+
+Synapse Notes incorporates a full-featured Jupyter Notebook (`.ipynb`) and Python script (`.py`) interactive workspace tailored for Machine Learning students and researchers.
+
+```mermaid
+flowchart TD
+    subgraph ImportLayer ["Import Pipeline"]
+        IPYNB[".ipynb File"] -->|JSON Parser| CellNorm["Normalized Cell Model (Code & Markdown)"]
+        PY[".py Script"] -->|Header Splitter # %%| CellNorm
+    end
+
+    subgraph RuntimeLayer ["Client-Side WASM Execution"]
+        CellNorm --> InteractiveUI["Interactive Multi-Cell Canvas"]
+        InteractiveUI -->|Run Cell| Pyodide["Pyodide WebAssembly Kernel (CPython 3.11 in WASM)"]
+        Pyodide -->|Stdout / Stderr| CellOutput["Output Stream"]
+        Pyodide -->|Matplotlib Figures| PlotOutput["Base64 PNG Chart Render"]
+    end
+
+    subgraph AnnotationLayer ["Inking & Handwriting Layer"]
+        InteractiveUI <--> InkingCanvas["Transparent Inking Canvas Overlay (Pen / Highlighter / Eraser)"]
+    end
+
+    subgraph ExportLayer ["Export Pipeline"]
+        InteractiveUI --> ExportIPYNB["Standard .ipynb (v4)"]
+        InteractiveUI --> ExportPY["Clean .py Script"]
+        InteractiveUI & InkingCanvas --> ExportPDF["Annotated PDF Document"]
+    end
+```
+
+### 7.1. Cell Data Model & Serialization
+Jupyter notebook cells and execution states are represented as structured items:
+
+```ts
+export interface JupyterCell {
+  id: string;
+  type: "code" | "markdown";
+  source: string;
+  execution_count?: number | null;
+  outputs?: JupyterCellOutput[];
+  isEditing?: boolean;
+}
+
+export interface JupyterCellOutput {
+  type: "text" | "image" | "error";
+  text?: string;
+  imageData?: string; // base64 PNG for Matplotlib plots
+}
+```
+
+To avoid breaking existing database tables, the cell array is serialized into `Page.code_content` when `code_language = "jupyter"`.
+
+---
+
+## 8. Client-Side Python WebAssembly Runtime (Pyodide)
+
+Python execution is powered entirely on the client side using **Pyodide** (CPython compiled to WebAssembly with Emscripten):
+
+1. **Zero Server Footprint:** No server-side containers or execution sandboxes required.
+2. **Isolation & Privacy:** Student datasets, proprietary models, and API keys remain strictly local in the browser context.
+3. **Graphics & Data Science Libraries:** Pyodide includes out-of-the-box support for `numpy`, `pandas`, `matplotlib`, and `scipy`.
+4. **Shared Environment State:** Variables, functions, and imports defined in earlier cells persist across subsequent cell executions in the active session.
+
+---
+
+## 9. Export & Interoperability Pipeline
+
+* **Jupyter (`.ipynb`)**: Generates standard Jupyter v4 JSON files directly compatible with Google Colab, JupyterLab, and VS Code.
+* **Python (`.py`)**: Exports cells cleanly demarcated by `# %%` cell markers for IDEs like VS Code and PyCharm.
+* **Annotated PDF**: Merges Markdown text, syntax-highlighted code cells, executed plot images, and handwritten ink strokes into a single, printable study artifact.
+
