@@ -52,6 +52,30 @@ const DEFAULT_CELLS: JupyterCell[] = [
   },
 ];
 
+// Helper: Point to segment squared distance
+function distToSegmentSquared(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
+  const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+  if (l2 === 0) return (px - x1) ** 2 + (py - y1) ** 2;
+  let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return (px - (x1 + t * (x2 - x1))) ** 2 + (py - (y1 + t * (y2 - y1))) ** 2;
+}
+
+function isStrokeNear(stroke: Stroke, x: number, y: number, radius: number): boolean {
+  const r2 = radius * radius;
+  const pts = stroke.points;
+  if (!pts || pts.length === 0) return false;
+  if (pts.length === 1) {
+    return (pts[0].x - x) ** 2 + (pts[0].y - y) ** 2 <= r2;
+  }
+  for (let i = 0; i < pts.length - 1; i++) {
+    if (distToSegmentSquared(x, y, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y) <= r2) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export default function JupyterNotebookCanvas({
   pageNumber,
   rawContent,
@@ -96,13 +120,21 @@ export default function JupyterNotebookCanvas({
   const [pyodideStatus, setPyodideStatus] = useState<PyodideStatus>("idle");
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // ── Inking Canvas State ───────────────────────────────────────────────
+  // ── References ────────────────────────────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null);
+  const notebookBodyRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const [strokes, setStrokes] = useState<Stroke[]>(initialStrokes);
   const isDrawingRef = useRef(false);
   const currentStrokeRef = useRef<Stroke | null>(null);
+
+  // Ensure initial scroll position starts at top
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
+  }, []);
 
   // Pyodide status subscription
   useEffect(() => {
@@ -123,32 +155,31 @@ export default function JupyterNotebookCanvas({
 
   // ── Canvas Sizing & Redraw ───────────────────────────────────────────
   const resizeCanvases = useCallback(() => {
-    if (!containerRef.current || !canvasRef.current || !overlayCanvasRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
+    if (!notebookBodyRef.current || !canvasRef.current || !overlayCanvasRef.current) return;
+    const body = notebookBodyRef.current;
+    const width = body.offsetWidth || 960;
+    const height = Math.max(body.scrollHeight || 600, 800);
     const dpr = window.devicePixelRatio || 1;
-    const width = rect.width || 900;
-    const height = Math.max(rect.height || 600, 800);
 
     const mainCanvas = canvasRef.current;
     const overCanvas = overlayCanvasRef.current;
 
-    mainCanvas.width = width * dpr;
-    mainCanvas.height = height * dpr;
-    mainCanvas.style.width = `${width}px`;
-    mainCanvas.style.height = `${height}px`;
-
-    overCanvas.width = width * dpr;
-    overCanvas.height = height * dpr;
-    overCanvas.style.width = `${width}px`;
-    overCanvas.style.height = `${height}px`;
-
-    const ctx = mainCanvas.getContext("2d");
-    if (ctx) {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (mainCanvas.width !== width * dpr || mainCanvas.height !== height * dpr) {
+      mainCanvas.width = width * dpr;
+      mainCanvas.height = height * dpr;
+      mainCanvas.style.width = `${width}px`;
+      mainCanvas.style.height = `${height}px`;
+      const ctx = mainCanvas.getContext("2d");
+      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
-    const octx = overCanvas.getContext("2d");
-    if (octx) {
-      octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (overCanvas.width !== width * dpr || overCanvas.height !== height * dpr) {
+      overCanvas.width = width * dpr;
+      overCanvas.height = height * dpr;
+      overCanvas.style.width = `${width}px`;
+      overCanvas.style.height = `${height}px`;
+      const octx = overCanvas.getContext("2d");
+      if (octx) octx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
   }, []);
 
@@ -162,7 +193,7 @@ export default function JupyterNotebookCanvas({
     ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
 
     for (const stroke of strokes) {
-      if (stroke.points.length === 0) continue;
+      if (!stroke.points || stroke.points.length === 0) continue;
       ctx.save();
       ctx.strokeStyle = stroke.color;
       ctx.fillStyle = stroke.color;
@@ -198,41 +229,48 @@ export default function JupyterNotebookCanvas({
     redrawCanvas();
   }, [cells, resizeCanvases, redrawCanvas]);
 
-  // Window resize observer
+  // Window & body resize observer
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!notebookBodyRef.current) return;
     const observer = new ResizeObserver(() => {
       resizeCanvases();
       redrawCanvas();
     });
-    observer.observe(containerRef.current);
+    observer.observe(notebookBodyRef.current);
     return () => observer.disconnect();
   }, [resizeCanvases, redrawCanvas]);
 
-  // ── Drawing Event Handlers ───────────────────────────────────────────
+  // ── Accurate Coordinates Calculation ─────────────────────────────────
   const getCanvasCoords = (e: React.PointerEvent) => {
-    if (!containerRef.current) return { x: 0, y: 0 };
-    const rect = containerRef.current.getBoundingClientRect();
+    const canvas = overlayCanvasRef.current || canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
     return {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     };
   };
 
+  // ── Eraser Helper ────────────────────────────────────────────────────
+  const eraseStrokesAt = (x: number, y: number) => {
+    const eraseRadius = Math.max(18, size * 6);
+    setStrokes(prevStrokes => {
+      const remaining = prevStrokes.filter(s => !isStrokeNear(s, x, y, eraseRadius));
+      if (remaining.length !== prevStrokes.length) {
+        onStrokesChange(pageNumber, remaining);
+      }
+      return remaining;
+    });
+  };
+
+  // ── Drawing Event Handlers ───────────────────────────────────────────
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!isDrawingActive && tool !== "pen" && tool !== "highlighter" && tool !== "eraser") return;
     const coords = getCanvasCoords(e);
     isDrawingRef.current = true;
 
     if (tool === "eraser") {
-      const radius = size * 5;
-      const filtered = strokes.filter(s =>
-        !s.points.some(p => Math.hypot(p.x - coords.x, p.y - coords.y) < radius)
-      );
-      if (filtered.length !== strokes.length) {
-        setStrokes(filtered);
-        onStrokesChange(pageNumber, filtered);
-      }
+      eraseStrokesAt(coords.x, coords.y);
       return;
     }
 
@@ -248,22 +286,35 @@ export default function JupyterNotebookCanvas({
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDrawingRef.current) return;
     const coords = getCanvasCoords(e);
 
     if (tool === "eraser") {
-      const radius = size * 5;
-      const filtered = strokes.filter(s =>
-        !s.points.some(p => Math.hypot(p.x - coords.x, p.y - coords.y) < radius)
-      );
-      if (filtered.length !== strokes.length) {
-        setStrokes(filtered);
-        onStrokesChange(pageNumber, filtered);
+      if (isDrawingRef.current) {
+        eraseStrokesAt(coords.x, coords.y);
+      }
+
+      // Live Eraser Circle Hover Preview
+      const overlay = overlayCanvasRef.current;
+      if (overlay) {
+        const ctx = overlay.getContext("2d");
+        const dpr = window.devicePixelRatio || 1;
+        if (ctx) {
+          ctx.clearRect(0, 0, overlay.width / dpr, overlay.height / dpr);
+          ctx.save();
+          ctx.strokeStyle = "#ef4444";
+          ctx.fillStyle = "rgba(239, 68, 68, 0.18)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(coords.x, coords.y, Math.max(18, size * 6), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
       }
       return;
     }
 
-    if (!currentStrokeRef.current) return;
+    if (!isDrawingRef.current || !currentStrokeRef.current) return;
     currentStrokeRef.current.points.push({
       x: coords.x,
       y: coords.y,
@@ -302,7 +353,6 @@ export default function JupyterNotebookCanvas({
   };
 
   const handlePointerUp = () => {
-    if (!isDrawingRef.current) return;
     isDrawingRef.current = false;
 
     if (overlayCanvasRef.current) {
@@ -326,7 +376,7 @@ export default function JupyterNotebookCanvas({
       type,
       source: type === "code" ? "# Python code\n" : "### New Section\nWrite notes here...",
       execution_count: null,
-      isEditing: type === "markdown",
+      isEditing: false,
     };
 
     if (!afterId) {
@@ -346,7 +396,6 @@ export default function JupyterNotebookCanvas({
 
   const handleDeleteCell = (id: string) => {
     if (cells.length <= 1) {
-      // Keep at least one empty cell
       handleCellsUpdated([
         {
           id: `cell_${uuid().slice(0, 8)}`,
@@ -478,6 +527,8 @@ export default function JupyterNotebookCanvas({
     }
   };
 
+  const isEraser = tool === "eraser";
+
   return (
     <div
       ref={containerRef}
@@ -578,16 +629,19 @@ export default function JupyterNotebookCanvas({
       </div>
 
       {/* Cells List & Drawing Canvas Overlay */}
-      <div className={styles.notebookBody}>
+      <div ref={notebookBodyRef} className={styles.notebookBody}>
         {/* Layer 1: Inking Canvases */}
         <canvas ref={canvasRef} className={styles.canvasOverlay} />
         <canvas
           ref={overlayCanvasRef}
-          className={`${styles.canvasOverlay} ${isDrawingActive ? styles.canvasOverlayInteractive : ""}`}
+          className={`${styles.canvasOverlay} ${
+            isDrawingActive ? (isEraser ? styles.canvasOverlayEraser : styles.canvasOverlayInteractive) : ""
+          }`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onPointerLeave={handlePointerUp}
         />
 
         {/* Layer 0: Cell Elements */}
@@ -724,11 +778,16 @@ function MarkdownCellRenderer({
   cell: JupyterCell;
   onUpdate: (newSource: string) => void;
 }) {
-  const [isEditing, setIsEditing] = useState(cell.isEditing || false);
+  const [isEditing, setIsEditing] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (isEditing || !previewRef.current) return;
+    if (isEditing) {
+      textareaRef.current?.focus();
+      return;
+    }
+    if (!previewRef.current) return;
     const el = previewRef.current;
 
     async function renderContent() {
@@ -781,6 +840,7 @@ function MarkdownCellRenderer({
     return (
       <div style={{ padding: "8px 12px" }}>
         <textarea
+          ref={textareaRef}
           className={styles.markdownEditor}
           value={cell.source}
           onChange={e => onUpdate(e.target.value)}
@@ -791,11 +851,10 @@ function MarkdownCellRenderer({
               setIsEditing(false);
             }
           }}
-          autoFocus
           rows={Math.max(3, cell.source.split("\n").length)}
           placeholder="Write Markdown or LaTeX ($...$ / $$...$$)..."
         />
-        <div className={styles.markdownHint}>Press Shift+Enter to finish editing</div>
+        <div className={styles.markdownHint}>Press Shift+Enter or click outside to finish editing</div>
       </div>
     );
   }
