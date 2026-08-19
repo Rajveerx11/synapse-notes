@@ -27,7 +27,16 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id } = await params;
-    const { page_number, strokes_json, text_content, pdf_url, pdf_page } = await req.json();
+    const {
+      page_number,
+      strokes_json,
+      text_content,
+      pdf_url,
+      pdf_page,
+      code_content,
+      code_language,
+      code_line_height,
+    } = await req.json();
 
     // Verify notebook ownership to prevent IDOR attacks
     if (session.userId !== "mcp") {
@@ -42,6 +51,9 @@ export async function POST(req: NextRequest, { params }: Params) {
       text_content,
       pdf_url,
       pdf_page,
+      code_content,
+      code_language,
+      code_line_height,
     });
 
     return NextResponse.json({ data: { id: pageId } });

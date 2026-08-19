@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { Notebook, Page, AiCard, Stroke } from "@/lib/types";
 import Canvas from "./Canvas";
 import InfiniteCanvas from "./InfiniteCanvas";
+import AnnotatedCodeCanvas from "./AnnotatedCodeCanvas";
+import { SupportedLanguage } from "@/lib/codeHighlighter";
 import Toolbar from "./Toolbar";
 import AnnotatedPDFCanvas from "./AnnotatedPDFCanvas";
 import StudyCard from "./StudyCard";
@@ -72,6 +74,7 @@ export default function NotebookEditor({
   const [showSummary, setShowSummary] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [infiniteMode, setInfiniteMode] = useState(false);
+  const [showCodeMode, setShowCodeMode] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(initialPdfUrl);
   const [showPDF, setShowPDF] = useState<boolean>(!!initialPdfUrl);
   const [cards, setCards] = useState<AiCard[]>(initialCards);
@@ -362,6 +365,83 @@ export default function NotebookEditor({
     [notebook.id, pdfUrl, persistLocally]
   );
 
+  const handleCodeChange = useCallback(
+    (newCode: string) => {
+      setPages((prev) => {
+        const idx = prev.findIndex((p) => p.page_number === currentPage);
+        if (idx < 0) return prev;
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], code_content: newCode };
+        persistLocally(updated);
+        return updated;
+      });
+
+      // Debounced save
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(async () => {
+        try {
+          await fetch(`/api/notebooks/${notebook.id}/pages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              page_number: currentPage,
+              code_content: newCode,
+            }),
+          });
+        } catch (e) {
+          console.warn("Failed to sync code content:", e);
+        }
+      }, 1000);
+    },
+    [currentPage, notebook.id, persistLocally]
+  );
+
+  const handleLanguageChange = useCallback(
+    (lang: SupportedLanguage) => {
+      setPages((prev) => {
+        const idx = prev.findIndex((p) => p.page_number === currentPage);
+        if (idx < 0) return prev;
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], code_language: lang };
+        persistLocally(updated);
+        return updated;
+      });
+
+      fetch(`/api/notebooks/${notebook.id}/pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          page_number: currentPage,
+          code_language: lang,
+        }),
+      }).catch(() => {});
+    },
+    [currentPage, notebook.id, persistLocally]
+  );
+
+  const handleLineHeightChange = useCallback(
+    (ratio: number) => {
+      setPages((prev) => {
+        const idx = prev.findIndex((p) => p.page_number === currentPage);
+        if (idx < 0) return prev;
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], code_line_height: ratio };
+        persistLocally(updated);
+        return updated;
+      });
+
+      fetch(`/api/notebooks/${notebook.id}/pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          page_number: currentPage,
+          code_line_height: ratio,
+        }),
+      }).catch(() => {});
+    },
+    [currentPage, notebook.id, persistLocally]
+  );
+
   async function handleTitleSave() {
     setIsEditingTitle(false);
     const newTitle = titleInput.trim() || "Untitled Notebook";
@@ -564,8 +644,8 @@ export default function NotebookEditor({
 
         <div className={styles.topCenter}>
           <button
-            className={`btn-icon ${!showPDF ? "active" : ""}`}
-            onClick={() => handleTogglePdf(false)}
+            className={`btn-icon ${!showPDF && !showCodeMode ? "active" : ""}`}
+            onClick={() => { setShowPDF(false); setShowCodeMode(false); }}
             title="Blank Canvas Mode"
             id="canvas-mode-btn"
           >
@@ -575,10 +655,22 @@ export default function NotebookEditor({
             </svg>
           </button>
 
+          <button
+            className={`btn-icon ${showCodeMode ? "active" : ""}`}
+            onClick={() => { setShowCodeMode(v => !v); setShowPDF(false); }}
+            title="Code Note-Taking Mode (Typed Snippets + Line-Anchored Ink Notes)"
+            id="code-mode-btn"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="16 18 22 12 16 6" />
+              <polyline points="8 6 2 12 8 18" />
+            </svg>
+          </button>
+
           {pdfUrl && (
             <button
               className={`btn-icon ${showPDF ? "active" : ""}`}
-              onClick={() => handleTogglePdf(true)}
+              onClick={() => { handleTogglePdf(true); setShowCodeMode(false); }}
               title="Annotate PDF Slides"
               id="pdf-mode-btn"
             >
@@ -755,7 +847,7 @@ export default function NotebookEditor({
           showOcr={showOcr}
         />
 
-        {/* Canvas / Annotated PDF */}
+        {/* Canvas / Annotated PDF / Code Canvas */}
         <main className={styles.canvasArea}>
           {showPDF && pdfUrl ? (
             <AnnotatedPDFCanvas
@@ -775,6 +867,23 @@ export default function NotebookEditor({
                 persistLocally(pages, notebook.title, url, true);
               }}
               onClose={() => handleTogglePdf(false)}
+            />
+          ) : showCodeMode ? (
+            <AnnotatedCodeCanvas
+              key={`code-page-${currentPage}`}
+              notebookId={notebook.id}
+              pageNumber={currentPage}
+              code={currentPageData?.code_content || "# Type or paste your code snippet here\ndef main():\n    print('Hello Synapse Notes!')\n"}
+              language={(currentPageData?.code_language as SupportedLanguage) || "python"}
+              lineHeightRatio={currentPageData?.code_line_height || 2.4}
+              tool={tool}
+              color={color}
+              size={size}
+              initialStrokes={currentStrokes}
+              onCodeChange={handleCodeChange}
+              onLanguageChange={handleLanguageChange}
+              onLineHeightChange={handleLineHeightChange}
+              onStrokesChange={handleStrokeSave}
             />
           ) : infiniteMode ? (
             <InfiniteCanvas
@@ -866,7 +975,7 @@ export default function NotebookEditor({
           <LectureSummaryPanel
             notebookId={notebook.id}
             pageNumber={currentPage}
-            ocrText={currentPageData?.text_content || ""}
+            ocrText={currentPageData?.text_content || currentPageData?.code_content || ""}
             onSaveCard={async (title: string, content: string) => {
               try {
                 const pageId = currentPageData?.id || `p-${currentPage}`;

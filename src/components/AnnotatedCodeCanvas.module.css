@@ -1,0 +1,124 @@
+.wrapper {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  background: var(--bg, #f5f3ef);
+  padding: 16px;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.splitLayout {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+  min-width: 700px;
+  position: relative;
+  z-index: 1;
+}
+
+.codePane {
+  flex: 3;
+  min-width: 380px;
+}
+
+.marginPane {
+  flex: 2;
+  min-width: 260px;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+}
+
+.marginHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--surface-2, #f9fafb);
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.ruledLinesContainer {
+  flex: 1;
+  padding: 12px 16px;
+}
+
+.ruledRow {
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px dashed var(--border, #e5e7eb);
+  box-sizing: border-box;
+}
+
+.rowAnchorLabel {
+  font-size: 0.65rem;
+  font-family: ui-monospace, monospace;
+  color: var(--text-muted, #9ca3af);
+  opacity: 0.5;
+  user-select: none;
+  margin-bottom: 2px;
+}
+
+.mainCanvas,
+.overlayCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.mainCanvas {
+  z-index: 5;
+}
+
+.overlayCanvas {
+  z-index: 10;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+/* Tablet & Mobile Layout */
+@media (max-width: 768px) {
+  .splitLayout {
+    flex-direction: column;
+    min-width: 100%;
+  }
+
+  .codePane,
+  .marginPane {
+    width: 100%;
+    min-width: 100%;
+  }
+}
+
+/* Dark Mode Tokens */
+[data-theme="dark"] .wrapper {
+  background: #12121c;
+}
+
+[data-theme="dark"] .marginPane {
+  background: #181824;
+  border-color: #2a2a3c;
+}
+
+[data-theme="dark"] .marginHeader {
+  background: #13131c;
+  border-color: #2a2a3c;
+  color: #9ca3af;
+}
+
+[data-theme="dark"] .ruledRow {
+  border-color: #2a2a3c;
+}

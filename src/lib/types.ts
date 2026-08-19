@@ -26,6 +26,9 @@ export interface Page {
   pdf_url: string | null;
   pdf_page: number | null;
   updated_at: number;
+  code_content?: string;
+  code_language?: string;
+  code_line_height?: number;
 }
 
 export interface Stroke {
@@ -35,6 +38,8 @@ export interface Stroke {
   size: number;
   opacity: number;
   points: { x: number; y: number; pressure: number }[];
+  anchor_line?: number;
+  line_offset_y?: number;
 }
 
 export interface AiCard {

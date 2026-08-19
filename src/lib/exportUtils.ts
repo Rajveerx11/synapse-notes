@@ -44,27 +44,29 @@ export function getActiveCanvasSnapshot(): string | null {
     }
   }
 
-  // 2. PDF Annotation Mode (Composite PDF + Ink)
+  // 2. PDF Annotation Mode or Code Note Inking Canvas
   const canvases = document.querySelectorAll("canvas");
-  if (canvases.length >= 2) {
+  if (canvases.length >= 1) {
     try {
-      const pdfCanvas = canvases[0];
-      const drawCanvas = canvases[1];
-      if (pdfCanvas.width > 0 && pdfCanvas.height > 0) {
+      const primaryCanvas = canvases[0];
+      if (primaryCanvas.width > 0 && primaryCanvas.height > 0) {
         const tempCanvas = document.createElement("canvas");
-        tempCanvas.width = pdfCanvas.width;
-        tempCanvas.height = pdfCanvas.height;
+        tempCanvas.width = primaryCanvas.width;
+        tempCanvas.height = primaryCanvas.height;
         const ctx = tempCanvas.getContext("2d");
         if (ctx) {
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-          ctx.drawImage(pdfCanvas, 0, 0);
-          ctx.drawImage(drawCanvas, 0, 0);
+          for (let i = 0; i < canvases.length; i++) {
+            if (canvases[i].width > 0 && canvases[i].height > 0) {
+              ctx.drawImage(canvases[i], 0, 0);
+            }
+          }
           return tempCanvas.toDataURL("image/png");
         }
       }
     } catch (e) {
-      console.warn("PDF composite snapshot error:", e);
+      console.warn("Canvas composite snapshot error:", e);
     }
   }
 
@@ -232,17 +234,52 @@ export async function exportToWord(
         text: `Page ${p.page_number}`,
         heading: HeadingLevel.HEADING_2,
         spacing: { before: 150, after: 80 },
-      }),
-      new Paragraph({
-        children: [
-          new TextRun({
-            text: p.text_content ? p.text_content : "(Handwritten strokes recorded on canvas)",
-            italics: !p.text_content,
-          }),
-        ],
-        spacing: { after: 150 },
       })
     );
+
+    if (p.code_content) {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: `Code Snippet (${p.code_language || "python"}):\n`,
+              bold: true,
+              color: "6366F1",
+            }),
+            new TextRun({
+              text: p.code_content,
+              font: "Courier New",
+            }),
+          ],
+          spacing: { after: 120 },
+        })
+      );
+    }
+
+    if (p.text_content) {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: p.text_content,
+            }),
+          ],
+          spacing: { after: 150 },
+        })
+      );
+    } else if (!p.code_content) {
+      children.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: "(Handwritten strokes recorded on canvas)",
+              italics: true,
+            }),
+          ],
+          spacing: { after: 150 },
+        })
+      );
+    }
   }
 
   // AI Study Cards Section

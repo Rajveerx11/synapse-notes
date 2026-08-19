@@ -174,8 +174,11 @@ export async function bootstrapSchema(): Promise<void> {
 
     try {
       await queryDb(`ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL`);
+      await queryDb(`ALTER TABLE pages ADD COLUMN IF NOT EXISTS code_content TEXT DEFAULT ''`);
+      await queryDb(`ALTER TABLE pages ADD COLUMN IF NOT EXISTS code_language TEXT DEFAULT 'python'`);
+      await queryDb(`ALTER TABLE pages ADD COLUMN IF NOT EXISTS code_line_height REAL DEFAULT 2.4`);
     } catch (e) {
-      // Column may already exist
+      // Columns may already exist
     }
 
     await queryDb(`
@@ -421,6 +424,9 @@ export const dbService = {
       text_content?: string;
       pdf_url?: string | null;
       pdf_page?: number | null;
+      code_content?: string;
+      code_language?: string;
+      code_line_height?: number;
     }
   ): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
@@ -437,13 +443,19 @@ export const dbService = {
               text_content = COALESCE($2, text_content),
               pdf_url = COALESCE($3, pdf_url),
               pdf_page = COALESCE($4, pdf_page),
-              updated_at = $5
-             WHERE id = $6`,
+              code_content = COALESCE($5, code_content),
+              code_language = COALESCE($6, code_language),
+              code_line_height = COALESCE($7, code_line_height),
+              updated_at = $8
+             WHERE id = $9`,
             [
               update.strokes_json ?? null,
               update.text_content ?? null,
               update.pdf_url ?? null,
               update.pdf_page ?? null,
+              update.code_content ?? null,
+              update.code_language ?? null,
+              update.code_line_height ?? null,
               now,
               existing[0].id,
             ]
@@ -455,8 +467,8 @@ export const dbService = {
         } else {
           const pageId = uuid();
           await queryDb(
-            `INSERT INTO pages (id, notebook_id, page_number, strokes_json, text_content, pdf_url, pdf_page)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            `INSERT INTO pages (id, notebook_id, page_number, strokes_json, text_content, pdf_url, pdf_page, code_content, code_language, code_line_height)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [
               pageId,
               notebookId,
@@ -465,6 +477,9 @@ export const dbService = {
               update.text_content ?? "",
               update.pdf_url ?? null,
               update.pdf_page ?? null,
+              update.code_content ?? "",
+              update.code_language ?? "python",
+              update.code_line_height ?? 2.4,
             ]
           );
           if (update.pdf_url) {
@@ -485,6 +500,9 @@ export const dbService = {
       if (update.text_content !== undefined) page.text_content = update.text_content;
       if (update.pdf_url !== undefined) page.pdf_url = update.pdf_url;
       if (update.pdf_page !== undefined) page.pdf_page = update.pdf_page;
+      if (update.code_content !== undefined) page.code_content = update.code_content;
+      if (update.code_language !== undefined) page.code_language = update.code_language;
+      if (update.code_line_height !== undefined) page.code_line_height = update.code_line_height;
       page.updated_at = now;
     } else {
       page = {
@@ -495,6 +513,9 @@ export const dbService = {
         text_content: update.text_content ?? "",
         pdf_url: update.pdf_url ?? null,
         pdf_page: update.pdf_page ?? null,
+        code_content: update.code_content ?? "",
+        code_language: update.code_language ?? "python",
+        code_line_height: update.code_line_height ?? 2.4,
         updated_at: now,
       };
       data.pages.push(page);
