@@ -303,6 +303,43 @@ export const dbService = {
     return { notebook: nb, pages };
   },
 
+  async getNotebookOwner(id: string): Promise<string | null> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await bootstrapSchema();
+        const rows = await queryDb<{ user_id: string }>(
+          `SELECT user_id FROM notebooks WHERE id = $1 LIMIT 1`,
+          [id]
+        );
+        if (rows.length > 0) return rows[0].user_id;
+      } catch (e) {
+        console.warn("Postgres getNotebookOwner error, using fallback:", e);
+      }
+    }
+    const data = loadFallbackData();
+    const nb = data.notebooks.find((n) => n.id === id);
+    return nb ? nb.user_id : null;
+  },
+
+  async ensureNotebook(
+    id: string,
+    userId: string,
+    title: string = "Untitled Notebook",
+    subject: string = ""
+  ): Promise<{ notebook: Notebook; pages: Page[] } | null> {
+    const existing = await this.getNotebook(id, userId);
+    if (existing) return existing;
+
+    const owner = await this.getNotebookOwner(id);
+    if (owner && owner !== userId && userId !== "mcp") {
+      return null;
+    }
+
+    const created = await this.createNotebook(id, userId, title, subject);
+    const pages = await this.listPages(id, userId);
+    return { notebook: created, pages };
+  },
+
   async createNotebook(id: string, userId: string, title: string, subject: string): Promise<Notebook> {
     const now = Math.floor(Date.now() / 1000);
     const nb: Notebook = {

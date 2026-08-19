@@ -36,11 +36,14 @@ export async function POST(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "title and content required" }, { status: 400 });
     }
 
-    // Verify notebook ownership to prevent IDOR attacks
+    // Verify notebook ownership to prevent IDOR attacks and auto-create if not yet persisted
     if (session.userId !== "mcp") {
-      const nb = await dbService.getNotebook(id, session.userId);
-      if (!nb) {
-        return NextResponse.json({ error: "Notebook not found or access forbidden" }, { status: 404 });
+      const owner = await dbService.getNotebookOwner(id);
+      if (owner && owner !== session.userId) {
+        return NextResponse.json({ error: "Access forbidden" }, { status: 403 });
+      }
+      if (!owner) {
+        await dbService.createNotebook(id, session.userId, "Untitled Notebook", "");
       }
     }
 

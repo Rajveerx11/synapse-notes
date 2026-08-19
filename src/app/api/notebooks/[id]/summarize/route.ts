@@ -20,8 +20,15 @@ export async function POST(req: NextRequest, { params }: Params) {
     const { id } = await params;
 
     // Ownership check
-    const notebook = await dbService.getNotebook(id, session.userId);
-    if (!notebook) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (session.userId !== "mcp") {
+      const owner = await dbService.getNotebookOwner(id);
+      if (owner && owner !== session.userId) {
+        return NextResponse.json({ error: "Access forbidden" }, { status: 403 });
+      }
+      if (!owner) {
+        await dbService.createNotebook(id, session.userId, "Untitled Notebook", "");
+      }
+    }
 
     const { page_number, ocr_text, pdf_slide_text } = await req.json();
     if (!page_number || typeof page_number !== "number") {

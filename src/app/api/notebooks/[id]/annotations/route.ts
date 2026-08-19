@@ -44,6 +44,16 @@ export async function POST(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "Missing required annotation fields" }, { status: 400 });
     }
 
+    if (session.userId !== "mcp") {
+      const owner = await dbService.getNotebookOwner(id);
+      if (owner && owner !== session.userId) {
+        return NextResponse.json({ error: "Access forbidden" }, { status: 403 });
+      }
+      if (!owner) {
+        await dbService.createNotebook(id, session.userId, "Untitled Notebook", "");
+      }
+    }
+
     const created = await dbService.createPdfAnnotation({
       notebook_id: id,
       page_number: body.page_number,

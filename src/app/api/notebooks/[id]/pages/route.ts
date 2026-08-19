@@ -10,6 +10,11 @@ export async function GET(req: NextRequest, { params }: Params) {
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { id } = await params;
+    const owner = await dbService.getNotebookOwner(id);
+    if (owner && owner !== session.userId && session.userId !== "mcp") {
+      return NextResponse.json({ error: "Access forbidden" }, { status: 403 });
+    }
+
     const pages = await dbService.listPages(id, session.userId);
     return NextResponse.json({ data: pages });
   } catch (err: unknown) {
@@ -38,11 +43,14 @@ export async function POST(req: NextRequest, { params }: Params) {
       code_line_height,
     } = await req.json();
 
-    // Verify notebook ownership to prevent IDOR attacks
+    // Verify notebook ownership to prevent IDOR attacks and auto-create if not yet persisted
     if (session.userId !== "mcp") {
-      const nb = await dbService.getNotebook(id, session.userId);
-      if (!nb) {
-        return NextResponse.json({ error: "Notebook not found or access forbidden" }, { status: 404 });
+      const owner = await dbService.getNotebookOwner(id);
+      if (owner && owner !== session.userId) {
+        return NextResponse.json({ error: "Access forbidden" }, { status: 403 });
+      }
+      if (!owner) {
+        await dbService.createNotebook(id, session.userId, "Untitled Notebook", "");
       }
     }
 
