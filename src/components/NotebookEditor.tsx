@@ -16,6 +16,7 @@ import OcrPanel from "./OcrPanel";
 import FlashcardReviewModal from "./FlashcardReviewModal";
 import LectureSummaryPanel from "./LectureSummaryPanel";
 import LiveCollaborators from "./LiveCollaborators";
+import KnowledgeLinksPanel from "./KnowledgeLinksPanel";
 import { CollaboratorPeer, LiveBroadcastMessage } from "@/lib/collaboration";
 import { v4 as uuid } from "uuid";
 import {
@@ -75,6 +76,7 @@ export default function NotebookEditor({
   const [showCards, setShowCards] = useState(false);
   const [showOcr,   setShowOcr]   = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  const [showLinks, setShowLinks] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [infiniteMode, setInfiniteMode] = useState(false);
   const [showCodeMode, setShowCodeMode] = useState(false);
@@ -830,7 +832,7 @@ export default function NotebookEditor({
 
           <button
             className={`btn-icon ${showCards ? "active" : ""}`}
-            onClick={() => setShowCards(s => !s)}
+            onClick={() => { setShowCards(s => !s); setShowOcr(false); setShowSummary(false); setShowLinks(false); }}
             title="AI Study Cards"
             id="cards-toggle-btn"
           >
@@ -841,8 +843,20 @@ export default function NotebookEditor({
             {cards.length > 0 && <span className={styles.cardBadge}>{cards.length}</span>}
           </button>
           <button
+            className={`btn-icon ${showLinks ? "active" : ""}`}
+            onClick={() => { setShowLinks(value => !value); setShowCards(false); setShowOcr(false); setShowSummary(false); }}
+            title="Wiki Links & Backlinks"
+            aria-label="Open wiki links and backlinks"
+            id="links-toggle-btn"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1.1" />
+              <path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1.1" />
+            </svg>
+          </button>
+          <button
             className={`btn-icon ${showSummary ? "active" : ""}`}
-            onClick={() => { setShowSummary(s => !s); setShowOcr(false); setShowCards(false); }}
+            onClick={() => { setShowSummary(s => !s); setShowOcr(false); setShowCards(false); setShowLinks(false); }}
             title="AI Lecture Summary"
             id="summary-toggle-btn"
           >
@@ -866,7 +880,7 @@ export default function NotebookEditor({
           onColorChange={setColor}
           size={size}
           onSizeChange={setSize}
-          onOcrClick={() => { setShowOcr(v => !v); setShowCards(false); }}
+          onOcrClick={() => { setShowOcr(v => !v); setShowCards(false); setShowSummary(false); setShowLinks(false); }}
           showOcr={showOcr}
         />
 
@@ -942,6 +956,18 @@ export default function NotebookEditor({
             />
           )}
         </main>
+
+        {/* Right — Wiki links and backlinks */}
+        {showLinks && (
+          <KnowledgeLinksPanel
+            notebookId={notebook.id}
+            notebookTitle={notebook.title}
+            pageNumber={currentPage}
+            pageText={currentPageData?.text_content || ""}
+            onSaveText={handleOcrSave}
+            onClose={() => setShowLinks(false)}
+          />
+        )}
 
         {/* Right — AI Cards Panel */}
         {showCards && (

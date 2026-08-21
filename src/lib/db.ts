@@ -776,6 +776,59 @@ export const dbService = {
     return false;
   },
 
+  async getKnowledgeGraphData(userId: string): Promise<{
+    notebooks: Notebook[];
+    pages: Page[];
+    cards: AiCard[];
+  }> {
+    if (process.env.DATABASE_URL) {
+      try {
+        await bootstrapSchema();
+        const [notebooks, pages, cards] = await Promise.all([
+          queryDb<Notebook>(
+            `SELECT n.*, COUNT(p.id)::int AS page_count
+             FROM notebooks n
+             LEFT JOIN pages p ON p.notebook_id = n.id
+             WHERE n.user_id = $1
+             GROUP BY n.id
+             ORDER BY n.updated_at DESC`,
+            [userId],
+          ),
+          queryDb<Page>(
+            `SELECT p.*
+             FROM pages p
+             JOIN notebooks n ON n.id = p.notebook_id
+             WHERE n.user_id = $1
+             ORDER BY p.notebook_id, p.page_number`,
+            [userId],
+          ),
+          queryDb<AiCard>(
+            `SELECT ac.*
+             FROM ai_cards ac
+             JOIN notebooks n ON n.id = ac.notebook_id
+             WHERE n.user_id = $1
+             ORDER BY ac.created_at DESC`,
+            [userId],
+          ),
+        ]);
+        return { notebooks, pages, cards };
+      } catch (e) {
+        console.warn("Postgres knowledge graph error, using fallback:", e);
+      }
+    }
+
+    const data = loadFallbackData();
+    const notebooks = data.notebooks.filter(
+      (notebook) => notebook.user_id === userId || userId === "mcp",
+    );
+    const notebookIds = new Set(notebooks.map((notebook) => notebook.id));
+    return {
+      notebooks,
+      pages: data.pages.filter((page) => notebookIds.has(page.notebook_id)),
+      cards: data.ai_cards.filter((card) => notebookIds.has(card.notebook_id)),
+    };
+  },
+
   async searchNotes(userId: string, query: string) {
     const like = `%${query}%`;
 
@@ -1177,4 +1230,3 @@ export const dbService = {
     );
   },
 };
-

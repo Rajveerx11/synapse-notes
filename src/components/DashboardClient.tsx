@@ -476,7 +476,20 @@ export default function DashboardClient({ notebooks: initial, username }: Props)
                   : `${filteredNotebooks.length} of ${notebooks.length} notebook${notebooks.length === 1 ? "" : "s"}`}
               </p>
             </div>
-            <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <div className={styles.topActions}>
+              <button
+                className="btn btn-ghost"
+                onClick={() => router.push("/graph")}
+                id="knowledge-graph-btn"
+                title="Explore linked notebooks and concepts"
+                style={{ border: "1px solid var(--border)" }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <circle cx="5" cy="12" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" />
+                  <path d="M7.3 10.9 15.6 7M7.3 13.1l8.3 3.9" />
+                </svg>
+                Knowledge Graph
+              </button>
               <button
                 className="btn btn-ghost"
                 onClick={() => setShowReview(true)}

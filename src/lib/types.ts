@@ -100,6 +100,40 @@ export interface LectureSummary {
   created_at: number;
 }
 
+export interface KnowledgeGraphReference {
+  source_notebook_id: string;
+  source_notebook_title: string;
+  target_id: string;
+  target_title: string;
+  source_type: "page" | "card";
+  source_label: string;
+  page_number: number;
+}
+
+export interface KnowledgeGraphNode {
+  id: string;
+  title: string;
+  kind: "notebook" | "concept";
+  subject: string;
+  href?: string;
+  incoming_count: number;
+  outgoing_count: number;
+}
+
+export interface KnowledgeGraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  mentions: number;
+  references: KnowledgeGraphReference[];
+}
+
+export interface KnowledgeGraph {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+  subjects: string[];
+}
+
 export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
