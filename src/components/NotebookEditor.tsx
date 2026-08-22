@@ -38,6 +38,8 @@ interface Props {
   initialPages: Page[];
   initialCards: AiCard[];
   username: string;
+  directPdfUpload: boolean;
+  blobAccess: "public" | "private";
 }
 
 export default function NotebookEditor({
@@ -45,6 +47,8 @@ export default function NotebookEditor({
   initialPages,
   initialCards,
   username,
+  directPdfUpload,
+  blobAccess,
 }: Props) {
   const router = useRouter();
 
@@ -468,36 +472,75 @@ export default function NotebookEditor({
     const file = e.target.files?.[0];
     if (!file) return;
     setSaveStatus("saving");
-    const form = new FormData();
-    form.append("file", file);
 
     try {
-      const res = await fetch("/api/pdf", { method: "POST", body: form });
-      const json = await res.json();
-      if (res.ok && json.data?.url) {
-        const url = json.data.url;
-        setPdfUrl(url);
-        setShowPDF(true);
+      let url: string;
 
-        // Update pages in state and local storage immediately
-        const updated = pages.map(p => ({ ...p, pdf_url: url }));
-        setPages(updated);
-        persistLocally(updated, notebook.title, url, true);
+      const uploadThroughServer = async () => {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch("/api/pdf", { method: "POST", body: form });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json.data?.url) {
+          throw new Error(json.error || "Failed to upload PDF");
+        }
+        return json.data.url as string;
+      };
 
-        // Sync to cloud database
-        await fetch(`/api/notebooks/${notebook.id}/pages`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ page_number: currentPage, pdf_url: url }),
-        });
+      if (directPdfUpload) {
+        try {
+          const { upload } = await import("@vercel/blob/client");
+          const safeName = file.name.replace(/[^a-zA-Z0-9_.-]/g, "_") || "document.pdf";
+          const blob = await upload(
+            `notebooks/${notebook.id}/${Date.now()}-${safeName}`,
+            file,
+            {
+              access: blobAccess,
+              handleUploadUrl: "/api/pdf/upload",
+              clientPayload: JSON.stringify({ notebookId: notebook.id }),
+              contentType: "application/pdf",
+              multipart: file.size > 4 * 1024 * 1024,
+            }
+          );
+          url = `/api/pdf/blob?url=${encodeURIComponent(blob.url)}`;
+        } catch (directError) {
+          if (file.size > 4 * 1024 * 1024) {
+            throw new Error(
+              directError instanceof Error
+                ? `Cloud PDF upload failed: ${directError.message}`
+                : "Cloud PDF upload failed"
+            );
+          }
+          url = await uploadThroughServer();
+        }
       } else {
-        alert(json.error || "Failed to upload PDF");
+        url = await uploadThroughServer();
       }
+
+      const pageRes = await fetch(`/api/notebooks/${notebook.id}/pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page_number: 1, pdf_url: url, pdf_page: 1 }),
+      });
+      if (!pageRes.ok) {
+        const json = await pageRes.json().catch(() => ({}));
+        throw new Error(json.error || "PDF uploaded, but notebook attachment failed");
+      }
+
+      setCurrentPage(1);
+      setPdfUrl(url);
+      setShowPDF(true);
+
+      const updated = pages.map(p => ({ ...p, pdf_url: url }));
+      setPages(updated);
+      persistLocally(updated, notebook.title, url, true);
     } catch (err) {
       console.error("PDF upload error:", err);
-      alert("Network error while uploading PDF. Please try again.");
+      alert(err instanceof Error ? err.message : "Failed to upload PDF. Please try again.");
+    } finally {
+      e.target.value = "";
+      setSaveStatus("saved");
     }
-    setSaveStatus("saved");
   }
 
   function handleTogglePdf(show: boolean) {

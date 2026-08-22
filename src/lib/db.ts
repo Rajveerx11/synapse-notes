@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { neon } from "@neondatabase/serverless";
 import { User, Notebook, Page, AiCard, PdfAnnotation, Tag, Folder, LectureSummary } from "./types";
 import { v4 as uuid } from "uuid";
 import fs from "fs";
@@ -42,13 +43,30 @@ function saveFallbackData(data: FallbackData): void {
 }
 
 let pgPool: Pool | null = null;
+let neonSql: ReturnType<typeof neon> | null = null;
 let schemaInitialized = false;
+
+function isNeonUrl(dbUrl: string): boolean {
+  try {
+    return new URL(dbUrl).hostname.toLowerCase().endsWith(".neon.tech");
+  } catch {
+    return false;
+  }
+}
 
 // Query executor supporting Neon, Supabase, and any standard PostgreSQL
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function queryDb<T = any>(queryText: string, params: any[] = []): Promise<T[]> {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("NO_DATABASE_URL");
+
+  // Neon recommends its HTTP transport for one-shot/serverless queries. It
+  // avoids a TCP/TLS connection setup on every isolated Next.js route.
+  if (isNeonUrl(dbUrl)) {
+    neonSql ||= neon(dbUrl);
+    const rows = await neonSql.query(queryText, params);
+    return rows as T[];
+  }
 
   if (!pgPool) {
     pgPool = new Pool({
@@ -367,13 +385,14 @@ export const dbService = {
       try {
         await bootstrapSchema();
         await queryDb(
-          `INSERT INTO notebooks (id, user_id, title, subject, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [id, userId, title, subject || "", now, now]
-        );
-        await queryDb(
-          `INSERT INTO pages (id, notebook_id, page_number) VALUES ($1, $2, 1)`,
-          [firstPage.id, id]
+          `WITH inserted_notebook AS (
+             INSERT INTO notebooks (id, user_id, title, subject, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING id
+           )
+           INSERT INTO pages (id, notebook_id, page_number)
+           SELECT $7, id, 1 FROM inserted_notebook`,
+          [id, userId, title, subject || "", now, now, firstPage.id]
         );
         return nb;
       } catch (e) {
@@ -469,62 +488,49 @@ export const dbService = {
     const now = Math.floor(Date.now() / 1000);
     if (process.env.DATABASE_URL) {
       try {
-        const existing = await queryDb<{ id: string }>(
-          `SELECT id FROM pages WHERE notebook_id = $1 AND page_number = $2`,
-          [notebookId, pageNumber]
+        const pageId = uuid();
+        const rows = await queryDb<{ id: string }>(
+          `WITH upserted AS (
+             INSERT INTO pages (
+               id, notebook_id, page_number, strokes_json, text_content,
+               pdf_url, pdf_page, code_content, code_language, code_line_height, updated_at
+             )
+             VALUES (
+               $1, $2, $3, COALESCE($4, '[]'), COALESCE($5, ''),
+               $6, $7, COALESCE($8, ''), COALESCE($9, 'python'), COALESCE($10, 2.4), $11
+             )
+             ON CONFLICT (notebook_id, page_number) DO UPDATE SET
+               strokes_json = COALESCE($4, pages.strokes_json),
+               text_content = COALESCE($5, pages.text_content),
+               pdf_url = COALESCE($6, pages.pdf_url),
+               pdf_page = COALESCE($7, pages.pdf_page),
+               code_content = COALESCE($8, pages.code_content),
+               code_language = COALESCE($9, pages.code_language),
+               code_line_height = COALESCE($10, pages.code_line_height),
+               updated_at = $11
+             RETURNING id
+           ), propagated_pdf AS (
+             UPDATE pages SET pdf_url = $6
+             WHERE notebook_id = $2 AND page_number <> $3 AND $6::text IS NOT NULL
+           ), touched_notebook AS (
+             UPDATE notebooks SET updated_at = $11 WHERE id = $2
+           )
+           SELECT id FROM upserted`,
+          [
+            pageId,
+            notebookId,
+            pageNumber,
+            update.strokes_json ?? null,
+            update.text_content ?? null,
+            update.pdf_url ?? null,
+            update.pdf_page ?? null,
+            update.code_content ?? null,
+            update.code_language ?? null,
+            update.code_line_height ?? null,
+            now,
+          ]
         );
-        if (existing.length > 0) {
-          await queryDb(
-            `UPDATE pages SET
-              strokes_json = COALESCE($1, strokes_json),
-              text_content = COALESCE($2, text_content),
-              pdf_url = COALESCE($3, pdf_url),
-              pdf_page = COALESCE($4, pdf_page),
-              code_content = COALESCE($5, code_content),
-              code_language = COALESCE($6, code_language),
-              code_line_height = COALESCE($7, code_line_height),
-              updated_at = $8
-             WHERE id = $9`,
-            [
-              update.strokes_json ?? null,
-              update.text_content ?? null,
-              update.pdf_url ?? null,
-              update.pdf_page ?? null,
-              update.code_content ?? null,
-              update.code_language ?? null,
-              update.code_line_height ?? null,
-              now,
-              existing[0].id,
-            ]
-          );
-          if (update.pdf_url) {
-            await queryDb(`UPDATE pages SET pdf_url = $1 WHERE notebook_id = $2`, [update.pdf_url, notebookId]);
-          }
-          return existing[0].id;
-        } else {
-          const pageId = uuid();
-          await queryDb(
-            `INSERT INTO pages (id, notebook_id, page_number, strokes_json, text_content, pdf_url, pdf_page, code_content, code_language, code_line_height)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-            [
-              pageId,
-              notebookId,
-              pageNumber,
-              update.strokes_json ?? "[]",
-              update.text_content ?? "",
-              update.pdf_url ?? null,
-              update.pdf_page ?? null,
-              update.code_content ?? "",
-              update.code_language ?? "python",
-              update.code_line_height ?? 2.4,
-            ]
-          );
-          if (update.pdf_url) {
-            await queryDb(`UPDATE pages SET pdf_url = $1 WHERE notebook_id = $2`, [update.pdf_url, notebookId]);
-          }
-          await queryDb(`UPDATE notebooks SET updated_at = $1 WHERE id = $2`, [now, notebookId]);
-          return pageId;
-        }
+        return rows[0].id;
       } catch (e) {
         console.warn("Postgres upsertPage error, using fallback:", e);
       }

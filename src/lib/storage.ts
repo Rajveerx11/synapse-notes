@@ -1,10 +1,12 @@
 import { put } from "@vercel/blob";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { v4 as uuid } from "uuid";
+import { promises as fs } from "fs";
+import path from "path";
 
 interface UploadResult {
   url: string;
-  provider: "cloudflare_r2" | "vercel_blob" | "neon_postgres";
+  provider: "cloudflare_r2" | "vercel_blob" | "neon_postgres" | "local_disk" | "data_uri";
 }
 
 /**
@@ -44,7 +46,9 @@ export async function uploadFileToStorage(
   contentType = "application/pdf"
 ): Promise<UploadResult> {
   const safeFilename = filename.trim().replace(/[^a-zA-Z0-9_.-]/g, "_");
-  const uniqueKey = `users/${userId}/${Date.now()}-${safeFilename}`;
+  const safeUserId = userId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const storedFilename = `${Date.now()}-${uuid()}-${safeFilename || "document.pdf"}`;
+  const uniqueKey = `users/${safeUserId}/${storedFilename}`;
 
   // 1. Cloudflare R2 Storage
   const r2 = getR2Client();
@@ -69,22 +73,27 @@ export async function uploadFileToStorage(
     }
   }
 
+  // Local development should not wait on cloud credentials or store temporary
+  // PDFs as oversized database rows. public/uploads is gitignored.
+  if (process.env.VERCEL !== "1") {
+    const uploadDirectory = path.join(process.cwd(), "public", "uploads", safeUserId);
+    await fs.mkdir(uploadDirectory, { recursive: true });
+    await fs.writeFile(path.join(uploadDirectory, storedFilename), buffer);
+    return {
+      url: `/uploads/${encodeURIComponent(safeUserId)}/${encodeURIComponent(storedFilename)}`,
+      provider: "local_disk",
+    };
+  }
+
   // 2. Vercel Blob Storage
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     try {
-      // Try private store upload (supported on Vercel Hobby private stores)
-      let blob;
-      try {
-        blob = await put(uniqueKey, buffer, {
-          access: "private",
-          contentType,
-        });
-      } catch {
-        blob = await put(uniqueKey, buffer, {
-          access: "public",
-          contentType,
-        });
-      }
+      const access = process.env.BLOB_ACCESS === "public" ? "public" : "private";
+      const blob = await put(uniqueKey, buffer, {
+        access,
+        contentType,
+        multipart: buffer.length > 4 * 1024 * 1024,
+      });
 
       // Route through streaming endpoint for reliable streaming
       const streamUrl = `/api/pdf/blob?url=${encodeURIComponent(blob.url)}`;
@@ -127,5 +136,5 @@ export async function uploadFileToStorage(
 
   // 4. In-Memory Data URI Fallback
   const dataUri = `data:${contentType};base64,${buffer.toString("base64")}`;
-  return { url: dataUri, provider: "neon_postgres" };
+  return { url: dataUri, provider: "data_uri" };
 }

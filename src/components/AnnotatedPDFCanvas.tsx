@@ -40,6 +40,7 @@ export default function AnnotatedPDFCanvas({
 
   const [numPages, setNumPages] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [pdfError, setPdfError] = useState("");
   const [showExportModal, setShowExportModal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportUrl, setExportUrl] = useState<string | null>(null);
@@ -68,16 +69,23 @@ export default function AnnotatedPDFCanvas({
     let cancelled = false;
     async function loadPDF() {
       setLoading(true);
+      setPdfError("");
       try {
         const pdfjsLib = await import("pdfjs-dist");
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          "pdfjs-dist/build/pdf.worker.min.mjs",
+          import.meta.url
+        ).toString();
         const pdf = await pdfjsLib.getDocument(url).promise;
         if (cancelled) return;
         pdfDocRef.current = pdf;
         setNumPages(pdf.numPages);
         setLoading(false);
-      } catch {
-        if (!cancelled) setLoading(false);
+      } catch (error) {
+        if (!cancelled) {
+          setPdfError(error instanceof Error ? error.message : "Failed to load PDF");
+          setLoading(false);
+        }
       }
     }
     loadPDF();
@@ -600,6 +608,12 @@ export default function AnnotatedPDFCanvas({
             <div className={styles.loadingState}>
               <div className={styles.spinner} />
               <p>Loading PDF…</p>
+            </div>
+          )}
+          {pdfError && !loading && (
+            <div className={styles.errorState} role="alert">
+              <strong>PDF could not be opened</strong>
+              <span>{pdfError}</span>
             </div>
           )}
           <div className={styles.canvasStack}>

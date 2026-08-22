@@ -17,8 +17,10 @@ export default async function NotebookPage({ params }: Props) {
   let cards: AiCard[] = [];
 
   try {
-    result = await dbService.getNotebook(id, session.userId);
-    cards = await dbService.listAiCards(id);
+    [result, cards] = await Promise.all([
+      dbService.getNotebook(id, session.userId),
+      dbService.listAiCards(id),
+    ]);
   } catch (e) {
     console.warn("Error fetching notebook from server:", e);
   }
@@ -51,6 +53,8 @@ export default async function NotebookPage({ params }: Props) {
       initialPages={result?.pages && result.pages.length > 0 ? result.pages : defaultPages}
       initialCards={cards}
       username={session.username}
+      directPdfUpload={process.env.VERCEL === "1" && Boolean(process.env.BLOB_READ_WRITE_TOKEN)}
+      blobAccess={process.env.BLOB_ACCESS === "public" ? "public" : "private"}
     />
   );
 }

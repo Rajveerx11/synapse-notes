@@ -1,16 +1,15 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Notebook & Canvas Interactions", () => {
-  const username = `canvas_user_${Date.now()}`;
   const password = "Password123!";
 
   test.beforeEach(async ({ page }) => {
-    // Signup and reach dashboard
-    await page.goto("/signup");
-    await page.fill('input[type="text"]', username);
-    await page.fill('input[type="password"]', password);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL("/", { timeout: 10000 });
+    const username = `canvas_user_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const register = await page.request.post("/api/auth/register", {
+      data: { username, password },
+    });
+    expect(register.ok()).toBeTruthy();
+    await page.goto("/");
   });
 
   test("should create a notebook, draw ink on canvas, and persist strokes", async ({ page }) => {
@@ -56,7 +55,7 @@ test.describe("Notebook & Canvas Interactions", () => {
     const searchInput = page.locator('input[aria-label="Search notebooks"], input[placeholder*="Search"]');
     await expect(searchInput).toBeVisible();
     await searchInput.fill("NonExistentTerm123");
-    await expect(page.locator("text=No notebooks match your filters")).toBeVisible();
+    await expect(page.getByText("No notebooks match your filters").first()).toBeVisible();
 
     await searchInput.fill("");
   });

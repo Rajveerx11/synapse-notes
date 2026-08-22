@@ -88,6 +88,25 @@
   position: relative;
 }
 
+.errorState {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 480px;
+  padding: var(--space-5);
+  color: var(--danger);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.errorState span {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
 .canvasStack {
   position: relative;
   display: inline-block;

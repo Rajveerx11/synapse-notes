@@ -29,7 +29,10 @@ export default function PDFViewer({ url, onClose }: Props) {
       try {
         // Dynamically import pdfjs to avoid SSR issues
         const pdfjsLib = await import("pdfjs-dist");
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          "pdfjs-dist/build/pdf.worker.min.mjs",
+          import.meta.url
+        ).toString();
 
         const loadingTask = pdfjsLib.getDocument(url);
         const pdf = await loadingTask.promise;
